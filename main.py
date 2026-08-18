@@ -1,561 +1,1682 @@
-import os,sys,io,traceback
-from typing import TypedDict,List,Optional
-from fastapi import FastAPI,HTTPException
+import io
+import os
+import sys
+import traceback
+from typing import List, Optional, TypedDict
+
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-from langchain_core.messages import BaseMessage,HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import StateGraph,START,END
+from langgraph.graph import END, START, StateGraph
+from pydantic import BaseModel
 
-app=FastAPI(title="AI Coding Agent",description="AI-powered coding, testing and execution pipeline",version="2.0.0")
 
-api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-MODEL_NAME="gemini-3.6-flash"
-llm=None
+# ============================================================
+# 1. FASTAPI APPLICATION
+# ============================================================
+
+app = FastAPI(
+    title="AI Coding Agent",
+    description="AI-powered coding, testing and execution pipeline",
+    version="2.0.0",
+)
+
+
+# ============================================================
+# 2. GEMINI CONFIGURATION
+# ============================================================
+
+api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+MODEL_NAME = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash"
+)
+
+llm = None
 
 if api_key:
     try:
-        llm=ChatGoogleGenerativeAI(model=MODEL_NAME,google_api_key=api_key)
+        llm = ChatGoogleGenerativeAI(
+            model=MODEL_NAME,
+            google_api_key=api_key,
+        )
     except Exception as exc:
         print(f"Gemini initialization error: {exc}")
+        llm = None
 else:
     print("WARNING: GEMINI_API_KEY is not configured.")
 
-class CrewState(TypedDict,total=False):
-    messages:List[BaseMessage]
-    code:Optional[str]
-    report:Optional[str]
+
+# ============================================================
+# 3. STATE
+# ============================================================
+
+class CrewState(TypedDict, total=False):
+    messages: List[BaseMessage]
+    code: Optional[str]
+    report: Optional[str]
+
+
+# ============================================================
+# 4. REQUEST MODEL
+# ============================================================
 
 class TaskRequest(BaseModel):
-    task:str
+    task: str
 
-def extract_content(response)->str:
-    content=getattr(response,"content",response)
-    if isinstance(content,str):
+
+# ============================================================
+# 5. HELPERS
+# ============================================================
+
+def extract_content(response) -> str:
+
+    content = getattr(response, "content", response)
+
+    if isinstance(content, str):
         return content
-    if isinstance(content,list):
-        parts=[]
+
+    if isinstance(content, list):
+
+        parts = []
+
         for item in content:
-            if isinstance(item,dict):
+
+            if isinstance(item, dict):
+
                 if "text" in item:
                     parts.append(str(item["text"]))
+
+                else:
+                    parts.append(str(item))
+
             else:
                 parts.append(str(item))
+
         return "\n".join(parts)
+
     return str(content)
 
-def clean_python_code(code:str)->str:
-    code=str(code).strip()
+
+def clean_python_code(code: str) -> str:
+
+    code = str(code).strip()
+
     if code.startswith("```python"):
-        code=code[len("```python"):]
+        code = code[len("```python"):]
+
     elif code.startswith("```Python"):
-        code=code[len("```Python"):]
+        code = code[len("```Python"):]
+
     elif code.startswith("```"):
-        code=code[3:]
+        code = code[3:]
+
     if code.endswith("```"):
-        code=code[:-3]
+        code = code[:-3]
+
     return code.strip()
 
-def run_python_code(code:str)->str:
-    clean_code=clean_python_code(str(code))
-    old_stdout=sys.stdout
-    new_stdout=io.StringIO()
-    sys.stdout=new_stdout
+
+# ============================================================
+# 6. PYTHON EXECUTION
+# ============================================================
+
+def run_python_code(code: str) -> str:
+
+    if not isinstance(code, str):
+        code = str(code)
+
+    clean_code = clean_python_code(code)
+
+    old_stdout = sys.stdout
+    new_stdout = io.StringIO()
+
+    sys.stdout = new_stdout
+
     try:
-        exec(clean_code,{"__name__":"__main__"},{})
-        result=new_stdout.getvalue()
+
+        local_scope = {}
+
+        exec(
+            clean_code,
+            {
+                "__name__": "__main__",
+            },
+            local_scope,
+        )
+
+        result = new_stdout.getvalue()
+
     except Exception:
-        result="Execution Error:\n"+traceback.format_exc()
+
+        result = (
+            "Execution Error:\n"
+            + traceback.format_exc()
+        )
+
     finally:
-        sys.stdout=old_stdout
-    result=result.strip()
-    return result if result else "Success (no terminal output)"
 
-def generate_test_cases(task:str)->str:
-    if llm is None:
-        return "Test generation unavailable because Gemini is not configured."
-    prompt=f"""You are a Senior QA Engineer.
-Generate 4 highly specific test scenarios for this coding task:
-{task}
-Include normal, boundary, edge and invalid-input cases where appropriate.
-Return only a numbered list."""
-    return extract_content(llm.invoke(prompt))
+        sys.stdout = old_stdout
 
-def real_time_developer(state:CrewState):
+    result = result.strip()
+
+    if result:
+        return result
+
+    return "Success (no terminal output)"
+
+
+# ============================================================
+# 7. GENERATE TEST CASES
+# ============================================================
+
+def generate_test_cases(task_description: str) -> str:
+
     if llm is None:
-        raise ValueError("Gemini API is not configured. Set GEMINI_API_KEY.")
-    messages=state.get("messages",[])
+
+        return (
+            "Test generation unavailable because Gemini "
+            "is not configured."
+        )
+
+    prompt = f"""
+You are a Senior QA Engineer.
+
+Generate 3 to 5 highly specific test scenarios
+for this Python coding task:
+
+{task_description}
+
+Include:
+
+1. Normal cases
+2. Boundary cases
+3. Edge cases
+4. Invalid input cases where appropriate
+
+Return only a numbered list.
+Do not write Python code.
+Do not add explanations outside the numbered list.
+"""
+
+    response = llm.invoke(prompt)
+
+    return extract_content(response)
+
+
+# ============================================================
+# 8. DEVELOPER NODE
+# ============================================================
+
+def real_time_developer(state: CrewState):
+
+    print("[Developer] Generating Python code...")
+
+    if llm is None:
+
+        raise ValueError(
+            "Gemini API is not configured. "
+            "Set GEMINI_API_KEY in Render Environment Variables."
+        )
+
+    messages = state.get("messages", [])
+
     if not messages:
         raise ValueError("No coding task was provided.")
-    task=messages[-1].content
-    prompt=f"""You are an expert Python developer.
-Write a complete executable Python program for this task:
+
+    task = messages[-1].content
+
+    developer_prompt = f"""
+You are an expert Python developer.
+
+Write a complete, executable Python program for:
+
 {task}
+
 Requirements:
+
 - Return ONLY Python source code.
 - Do NOT use Markdown.
-- Do NOT include code fences.
-- The program must run directly with Python.
+- Do NOT include ```python.
+- The program must be executable directly with Python.
 - Use clear variable names.
 - Handle reasonable edge cases.
-- Print the result when output is required."""
-    code=clean_python_code(extract_content(llm.invoke(prompt)))
-    if not code:
-        raise ValueError("Gemini returned empty Python code.")
-    return {"code":code}
+- If the task asks for output, print the result.
+- Do not explain the code outside the Python source.
+- Do not install external packages.
+- Prefer Python standard library functionality.
+- Avoid interactive input unless specifically requested.
+"""
 
-def real_time_tester(state:CrewState):
-    messages=state.get("messages",[])
+    response = llm.invoke(developer_prompt)
+
+    code_str = clean_python_code(
+        extract_content(response)
+    )
+
+    if not code_str:
+        raise ValueError(
+            "Gemini returned empty Python code."
+        )
+
+    print("\nGenerated Code:")
+    print(code_str)
+
+    return {
+        "code": code_str
+    }
+
+
+# ============================================================
+# 9. TESTER NODE
+# ============================================================
+
+def real_time_tester(state: CrewState):
+
+    print(
+        "[Tester] Generating tests and executing code..."
+    )
+
+    messages = state.get("messages", [])
+
     if not messages:
-        raise ValueError("No coding task available.")
-    task=messages[-1].content
-    code=state.get("code","")
-    if not code:
-        raise ValueError("No generated code available.")
-    tests=generate_test_cases(task)
-    output=run_python_code(code)
-    return {"report":f"EXECUTION OUTPUT\n\n{output}\n\nTEST SCENARIOS\n\n{tests}"}
+        raise ValueError(
+            "No task available for testing."
+        )
 
-workflow=StateGraph(CrewState)
-workflow.add_node("developer",real_time_developer)
-workflow.add_node("tester",real_time_tester)
-workflow.add_edge(START,"developer")
-workflow.add_edge("developer","tester")
-workflow.add_edge("tester",END)
-rt_app=workflow.compile()
+    task = messages[-1].content
 
-@app.get("/",response_class=HTMLResponse)
+    generated_code = state.get("code", "")
+
+    if not generated_code:
+        raise ValueError(
+            "No generated code available for testing."
+        )
+
+    test_cases = generate_test_cases(task)
+
+    execution_result = run_python_code(
+        generated_code
+    )
+
+    report = (
+        "### EXECUTION OUTPUT\n\n"
+        f"{execution_result}\n\n"
+        "### TEST SCENARIOS\n\n"
+        f"{test_cases}"
+    )
+
+    print("\nTest Report:")
+    print(report)
+
+    return {
+        "report": report
+    }
+
+
+# ============================================================
+# 10. LANGGRAPH WORKFLOW
+# ============================================================
+
+workflow = StateGraph(CrewState)
+
+workflow.add_node(
+    "developer",
+    real_time_developer,
+)
+
+workflow.add_node(
+    "tester",
+    real_time_tester,
+)
+
+workflow.add_edge(
+    START,
+    "developer",
+)
+
+workflow.add_edge(
+    "developer",
+    "tester",
+)
+
+workflow.add_edge(
+    "tester",
+    END,
+)
+
+rt_app = workflow.compile()
+
+
+# ============================================================
+# 11. LIGHT BLUE AESTHETIC FRONTEND
+# ============================================================
+
+@app.get("/", response_class=HTMLResponse)
 async def home():
+
     return """
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
+
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>AI Coding Agent</title>
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>AI Coding Agent 💙</title>
+
+
+<link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+>
+
+<link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+>
+
+<link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Pacifico&display=swap"
+    rel="stylesheet"
+>
+
+
 <style>
-*{box-sizing:border-box}
-:root{
---bg:#12091f;
---purple:#7c3aed;
---violet:#a855f7;
---lavender:#c084fc;
---pink:#ec4899;
---white:#f5f3ff;
---muted:#c4b5fd;
---glass:rgba(255,255,255,.075);
---border:rgba(255,255,255,.14);
+
+/* =========================================================
+   BASIC
+   ========================================================= */
+
+* {
+    box-sizing: border-box;
 }
-html{scroll-behavior:smooth}
-body{
-margin:0;
-min-height:100vh;
-font-family:"Space Grotesk","Segoe UI",Arial,sans-serif;
-color:#fff;
-background:
-radial-gradient(circle at 5% 10%,rgba(168,85,247,.32),transparent 27%),
-radial-gradient(circle at 95% 15%,rgba(236,72,153,.22),transparent 25%),
-radial-gradient(circle at 50% 100%,rgba(124,58,237,.28),transparent 35%),
-linear-gradient(135deg,#12091f,#1c0b31 45%,#10081c);
-overflow-x:hidden;
+
+html {
+    scroll-behavior: smooth;
 }
-body:before{
-content:"";
-position:fixed;
-inset:0;
-pointer-events:none;
-background-image:
-linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
-linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
-background-size:50px 50px;
-mask-image:linear-gradient(to bottom,black,transparent);
+
+body {
+
+    margin: 0;
+
+    min-height: 100vh;
+
+    font-family: "DM Sans", sans-serif;
+
+    color: #29445c;
+
+    background:
+
+        radial-gradient(
+            circle at 5% 5%,
+            rgba(186, 230, 253, 0.85),
+            transparent 30%
+        ),
+
+        radial-gradient(
+            circle at 95% 10%,
+            rgba(191, 219, 254, 0.8),
+            transparent 30%
+        ),
+
+        radial-gradient(
+            circle at 50% 100%,
+            rgba(224, 242, 254, 0.95),
+            transparent 40%
+        ),
+
+        linear-gradient(
+            135deg,
+            #f7fcff,
+            #e9f6ff 45%,
+            #dfefff
+        );
+
+    background-attachment: fixed;
+
+    overflow-x: hidden;
 }
-.container{width:min(1250px,100%);margin:auto;padding:28px 22px 60px;position:relative}
-.nav{
-height:66px;
-display:flex;
-align-items:center;
-justify-content:space-between;
-padding:0 20px;
-border:1px solid var(--border);
-background:rgba(255,255,255,.065);
-backdrop-filter:blur(20px);
-border-radius:20px;
-box-shadow:0 15px 45px rgba(0,0,0,.2);
-margin-bottom:70px;
+
+
+/* =========================================================
+   DECORATIVE ELEMENTS
+   ========================================================= */
+
+.decor {
+
+    position: fixed;
+
+    pointer-events: none;
+
+    z-index: 0;
+
+    user-select: none;
 }
-.brand{display:flex;align-items:center;gap:12px;font-weight:700}
-.brand-orb{
-width:36px;
-height:36px;
-border-radius:12px;
-display:grid;
-place-items:center;
-background:linear-gradient(135deg,var(--pink),var(--violet),var(--purple));
-box-shadow:0 0 25px rgba(168,85,247,.55);
+
+.decor.one {
+
+    top: 8%;
+
+    left: 4%;
+
+    color: rgba(96, 165, 250, 0.28);
+
+    font-size: 42px;
+
+    animation:
+        floatOne 5s ease-in-out infinite;
 }
-.online{display:flex;align-items:center;gap:8px;color:#c4b5fd;font-size:13px}
-.online-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 12px #4ade80}
-.hero{text-align:center;margin-bottom:55px}
-.big-orb{
-width:96px;
-height:96px;
-margin:0 auto 25px;
-border-radius:30px;
-display:grid;
-place-items:center;
-font-size:42px;
-background:radial-gradient(circle at 35% 25%,#f5d0fe,#c084fc 25%,#9333ea 60%,#4c1d95);
-box-shadow:
-0 0 35px rgba(168,85,247,.6),
-0 0 90px rgba(236,72,153,.18);
-animation:orb 4s ease-in-out infinite;
+
+.decor.two {
+
+    top: 30%;
+
+    right: 5%;
+
+    color: rgba(56, 189, 248, 0.27);
+
+    font-size: 34px;
+
+    animation:
+        floatTwo 6s ease-in-out infinite;
 }
-@keyframes orb{
-0%,100%{transform:translateY(0) rotate(0)}
-50%{transform:translateY(-7px) rotate(2deg)}
+
+.decor.three {
+
+    bottom: 10%;
+
+    left: 7%;
+
+    color: rgba(125, 211, 252, 0.4);
+
+    font-size: 32px;
+
+    animation:
+        floatOne 7s ease-in-out infinite;
 }
-.hero h1{
-margin:0;
-font-size:clamp(42px,6vw,70px);
-letter-spacing:-3px;
-line-height:1;
-background:linear-gradient(90deg,#fff,#e9d5ff,#f0abfc,#c084fc);
--webkit-background-clip:text;
--webkit-text-fill-color:transparent;
+
+
+/* =========================================================
+   CONTAINER
+   ========================================================= */
+
+.container {
+
+    position: relative;
+
+    z-index: 1;
+
+    width: min(1050px, 92%);
+
+    margin: auto;
+
+    padding: 55px 0 70px;
 }
-.hero p{color:#c4b5fd;font-size:18px;margin:20px 0 0}
-.dashboard{display:grid;grid-template-columns:1fr 1.25fr;gap:22px}
-.card{
-background:var(--glass);
-border:1px solid var(--border);
-backdrop-filter:blur(24px);
--webkit-backdrop-filter:blur(24px);
-border-radius:24px;
-padding:25px;
-box-shadow:0 25px 70px rgba(0,0,0,.22);
-transition:.3s ease;
+
+
+/* =========================================================
+   HERO
+   ========================================================= */
+
+.hero {
+
+    text-align: center;
+
+    margin-bottom: 42px;
 }
-.card:hover{transform:translateY(-3px);border-color:rgba(192,132,252,.25)}
-.card-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-.card-title h2{font-size:18px;margin:0;color:#f5f3ff}
-.label{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#a78bfa}
-textarea{
-width:100%;
-height:260px;
-resize:none;
-padding:20px;
-border-radius:18px;
-border:1px solid rgba(196,181,253,.18);
-background:rgba(5,2,15,.55);
-color:#fff;
-font:15px/1.7 "Space Grotesk",sans-serif;
-outline:none;
-transition:.25s;
+
+
+.logo {
+
+    width: 90px;
+
+    height: 90px;
+
+    margin: 0 auto 20px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    border-radius: 30px;
+
+    background:
+
+        linear-gradient(
+            135deg,
+            #7dd3fc,
+            #60a5fa
+        );
+
+    box-shadow:
+
+        0 20px 45px
+        rgba(59, 130, 246, 0.23);
+
+    font-size: 45px;
+
+    animation:
+        logoFloat 4s ease-in-out infinite;
+
+    transform: rotate(-4deg);
 }
-textarea::placeholder{color:#81749b}
-textarea:focus{border-color:#a855f7;box-shadow:0 0 0 4px rgba(168,85,247,.1)}
-.run{
-width:100%;
-margin-top:16px;
-padding:16px;
-border:0;
-border-radius:16px;
-background:linear-gradient(110deg,#7c3aed,#a855f7,#ec4899,#a855f7);
-background-size:250% 100%;
-color:white;
-font-size:15px;
-font-weight:700;
-cursor:pointer;
-box-shadow:0 12px 35px rgba(124,58,237,.35);
-transition:.25s;
+
+.logo:hover {
+
+    transform:
+        rotate(4deg)
+        scale(1.08);
 }
-.run:hover{background-position:100% 0;transform:translateY(-2px);box-shadow:0 16px 40px rgba(168,85,247,.45)}
-.run:disabled{opacity:.55;cursor:not-allowed;transform:none}
-.steps{margin-top:20px;display:grid;gap:9px}
-.step{display:flex;align-items:center;gap:10px;color:#716783;font-size:13px}
-.step.active{color:#e9d5ff}
-.step.done{color:#86efac}
-.step-icon{width:21px;height:21px;border-radius:50%;display:grid;place-items:center;border:1px solid #4b3b62;font-size:10px}
-.step.active .step-icon{border-color:#a855f7;background:rgba(168,85,247,.15);box-shadow:0 0 14px rgba(168,85,247,.35)}
-.step.done .step-icon{border-color:#4ade80;color:#4ade80}
-.code-window{overflow:hidden;border-radius:18px;background:#080510;border:1px solid rgba(255,255,255,.1)}
-.window-bar{height:42px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.035)}
-.dot{width:10px;height:10px;border-radius:50%}
-.red{background:#fb7185}.yellow{background:#fbbf24}.green{background:#4ade80}
-.file-name{margin-left:8px;color:#827694;font-size:12px}
-pre{
-margin:0;
-height:260px;
-padding:18px;
-overflow:auto;
-white-space:pre-wrap;
-word-break:break-word;
-color:#ddd6fe;
-font:13px/1.7 "JetBrains Mono","Fira Code",Consolas,monospace;
+
+
+h1 {
+
+    margin: 0;
+
+    font-size: clamp(42px, 7vw, 68px);
+
+    font-weight: 700;
+
+    letter-spacing: -2px;
+
+    color: #285477;
 }
-.actions{display:flex;gap:9px;margin-top:14px}
-.small-btn{
-flex:1;
-padding:10px 12px;
-border-radius:12px;
-border:1px solid rgba(196,181,253,.15);
-background:rgba(255,255,255,.05);
-color:#ddd6fe;
-cursor:pointer;
-font-size:12px;
-transition:.2s;
+
+
+.brand-script {
+
+    font-family: "Pacifico", cursive;
+
+    color: #3b82f6;
+
+    font-size: 0.72em;
 }
-.small-btn:hover{background:rgba(168,85,247,.13);border-color:#8b5cf6;color:#fff}
-.results{margin-top:22px}
-.result-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.stat{padding:20px;border-radius:18px;background:rgba(5,2,15,.35);border:1px solid rgba(255,255,255,.08)}
-.stat-number{font-size:30px;font-weight:800;color:#fff}
-.stat-label{font-size:11px;color:#8f83a4;text-transform:uppercase;letter-spacing:1px;margin-top:3px}
-.stat.passed .stat-number{color:#86efac}
-.stat.failed .stat-number{color:#fb7185}
-.test-list{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}
-.test-item{padding:13px 15px;border-radius:14px;background:rgba(255,255,255,.04);color:#c4b5fd;font-size:13px;border:1px solid rgba(255,255,255,.06)}
-.test-item:before{content:"✓";color:#4ade80;margin-right:8px;font-weight:bold}
-.output{margin-top:18px}
-.output pre{height:180px;background:rgba(5,2,15,.5);border-radius:16px}
-.status{text-align:center;min-height:22px;margin-top:13px;font-size:13px}
-.success{color:#86efac}.error{color:#fb7185}
-.footer{text-align:center;margin-top:35px;color:#695c7d;font-size:12px}
-@media(max-width:850px){
-.dashboard{grid-template-columns:1fr}
-.nav{margin-bottom:45px}
-.hero{margin-bottom:35px}
+
+
+.subtitle {
+
+    margin: 13px 0 0;
+
+    color: #62809a;
+
+    font-size: 18px;
+
+    font-weight: 500;
 }
-@media(max-width:600px){
-.container{padding:15px 12px 40px}
-.nav{height:58px;padding:0 14px;border-radius:16px}
-.brand{font-size:13px}
-.hero h1{letter-spacing:-2px}
-.hero p{font-size:15px}
-.big-orb{width:76px;height:76px;font-size:32px;border-radius:24px}
-.card{padding:18px;border-radius:19px}
-textarea,pre{height:220px}
-.result-grid{grid-template-columns:1fr}
-.test-list{grid-template-columns:1fr}
-.actions{flex-direction:column}
+
+
+.tagline {
+
+    display: inline-block;
+
+    margin-top: 20px;
+
+    padding: 9px 18px;
+
+    border-radius: 999px;
+
+    background:
+        rgba(255, 255, 255, 0.72);
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.95);
+
+    color: #4780aa;
+
+    font-size: 14px;
+
+    box-shadow:
+        0 8px 25px
+        rgba(50, 110, 160, 0.10);
+
+    backdrop-filter: blur(10px);
 }
+
+
+/* =========================================================
+   GLASS CARDS
+   ========================================================= */
+
+.card {
+
+    margin-bottom: 26px;
+
+    padding: 30px;
+
+    border-radius: 30px;
+
+    background:
+        rgba(255,255,255,0.70);
+
+    border:
+        1px solid
+        rgba(255,255,255,0.96);
+
+    box-shadow:
+
+        0 25px 60px
+        rgba(60, 110, 150, 0.12);
+
+    backdrop-filter: blur(18px);
+
+    -webkit-backdrop-filter: blur(18px);
+
+    transition:
+        transform 0.3s ease,
+        box-shadow 0.3s ease;
+}
+
+
+.card:hover {
+
+    transform: translateY(-3px);
+
+    box-shadow:
+
+        0 30px 70px
+        rgba(60, 110, 150, 0.17);
+}
+
+
+.card-header {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 13px;
+
+    margin-bottom: 19px;
+}
+
+
+.card-icon {
+
+    width: 46px;
+
+    height: 46px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    border-radius: 15px;
+
+    background:
+
+        linear-gradient(
+            135deg,
+            #dff5ff,
+            #dbeafe
+        );
+
+    font-size: 23px;
+
+    box-shadow:
+
+        0 7px 20px
+        rgba(60, 130, 180, 0.10);
+}
+
+
+h2 {
+
+    margin: 0;
+
+    color: #315d7c;
+
+    font-size: 22px;
+
+    font-weight: 700;
+}
+
+
+/* =========================================================
+   TEXTAREA
+   ========================================================= */
+
+textarea {
+
+    width: 100%;
+
+    min-height: 180px;
+
+    padding: 20px;
+
+    border-radius: 21px;
+
+    border:
+        2px solid
+        #bfdbfe;
+
+    outline: none;
+
+    resize: vertical;
+
+    background:
+        rgba(248, 252, 255, 0.94);
+
+    color: #29445c;
+
+    font-family:
+        "DM Sans",
+        sans-serif;
+
+    font-size: 16px;
+
+    line-height: 1.65;
+
+    transition:
+        border-color 0.25s ease,
+        box-shadow 0.25s ease,
+        background 0.25s ease;
+}
+
+
+textarea::placeholder {
+
+    color: #8aa9bf;
+}
+
+
+textarea:focus {
+
+    border-color: #60a5fa;
+
+    background: white;
+
+    box-shadow:
+
+        0 0 0 5px
+        rgba(96, 165, 250, 0.12);
+}
+
+
+/* =========================================================
+   BUTTON
+   ========================================================= */
+
+button {
+
+    width: 100%;
+
+    margin-top: 18px;
+
+    padding: 17px 25px;
+
+    border: none;
+
+    border-radius: 19px;
+
+    background:
+
+        linear-gradient(
+            135deg,
+            #60a5fa,
+            #38bdf8
+        );
+
+    color: white;
+
+    font-family:
+        "DM Sans",
+        sans-serif;
+
+    font-size: 17px;
+
+    font-weight: 700;
+
+    cursor: pointer;
+
+    box-shadow:
+
+        0 14px 30px
+        rgba(59, 130, 246, 0.24);
+
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease,
+        filter 0.2s ease;
+}
+
+
+button:hover {
+
+    transform: translateY(-2px);
+
+    filter: brightness(1.04);
+
+    box-shadow:
+
+        0 18px 38px
+        rgba(59, 130, 246, 0.32);
+}
+
+
+button:active {
+
+    transform: translateY(1px);
+}
+
+
+button:disabled {
+
+    background:
+
+        linear-gradient(
+            135deg,
+            #a9bdce,
+            #a7c3d4
+        );
+
+    cursor: not-allowed;
+
+    box-shadow: none;
+
+    transform: none;
+}
+
+
+/* =========================================================
+   STATUS
+   ========================================================= */
+
+.status {
+
+    min-height: 25px;
+
+    margin-top: 17px;
+
+    text-align: center;
+
+    font-size: 14px;
+
+    font-weight: 700;
+}
+
+
+.success {
+
+    color: #16805b;
+}
+
+
+.error {
+
+    color: #d14f6d;
+}
+
+
+/* =========================================================
+   OUTPUT
+   ========================================================= */
+
+.output-wrapper {
+
+    position: relative;
+}
+
+
+.output-label {
+
+    position: absolute;
+
+    top: 13px;
+
+    right: 14px;
+
+    padding: 5px 11px;
+
+    border-radius: 999px;
+
+    background:
+        rgba(147, 197, 253, 0.13);
+
+    border:
+        1px solid
+        rgba(147, 197, 253, 0.18);
+
+    color: #a9d8f7;
+
+    font-size: 10px;
+
+    font-weight: 700;
+
+    letter-spacing: 1px;
+}
+
+
+pre {
+
+    margin: 0;
+
+    min-height: 160px;
+
+    padding: 27px 22px;
+
+    border-radius: 21px;
+
+    overflow-x: auto;
+
+    white-space: pre-wrap;
+
+    word-break: break-word;
+
+    background:
+
+        linear-gradient(
+            145deg,
+            #172b3d,
+            #142536
+        );
+
+    border:
+        1px solid
+        rgba(255,255,255,0.08);
+
+    color: #d9f1ff;
+
+    font-family:
+        "Courier New",
+        monospace;
+
+    font-size: 14px;
+
+    line-height: 1.75;
+
+    box-shadow:
+
+        inset 0 1px 0
+        rgba(255,255,255,0.04);
+}
+
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+
+.footer {
+
+    margin-top: 38px;
+
+    text-align: center;
+
+    color: #7895aa;
+
+    font-size: 13px;
+}
+
+
+.footer-heart {
+
+    color: #60a5fa;
+
+    font-size: 17px;
+}
+
+
+/* =========================================================
+   ANIMATIONS
+   ========================================================= */
+
+@keyframes logoFloat {
+
+    0% {
+        transform:
+            translateY(0)
+            rotate(-4deg);
+    }
+
+    50% {
+        transform:
+            translateY(-8px)
+            rotate(2deg);
+    }
+
+    100% {
+        transform:
+            translateY(0)
+            rotate(-4deg);
+    }
+}
+
+
+@keyframes floatOne {
+
+    0% {
+        transform:
+            translateY(0)
+            rotate(0deg);
+    }
+
+    50% {
+        transform:
+            translateY(-18px)
+            rotate(10deg);
+    }
+
+    100% {
+        transform:
+            translateY(0)
+            rotate(0deg);
+    }
+}
+
+
+@keyframes floatTwo {
+
+    0% {
+        transform:
+            translateY(0);
+    }
+
+    50% {
+        transform:
+            translateY(15px);
+    }
+
+    100% {
+        transform:
+            translateY(0);
+    }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .container {
+
+        width: 94%;
+
+        padding-top: 35px;
+    }
+
+
+    .logo {
+
+        width: 75px;
+
+        height: 75px;
+
+        font-size: 37px;
+
+        border-radius: 24px;
+    }
+
+
+    h1 {
+
+        font-size: 42px;
+
+        letter-spacing: -1.5px;
+    }
+
+
+    .subtitle {
+
+        font-size: 15px;
+    }
+
+
+    .tagline {
+
+        font-size: 12px;
+    }
+
+
+    .card {
+
+        padding: 20px;
+
+        border-radius: 23px;
+    }
+
+
+    h2 {
+
+        font-size: 19px;
+    }
+
+
+    textarea {
+
+        min-height: 150px;
+
+        font-size: 15px;
+    }
+
+
+    pre {
+
+        font-size: 12px;
+    }
+
+
+    .decor {
+
+        display: none;
+    }
+}
+
 </style>
+
 </head>
+
+
 <body>
+
+
+<!-- ========================================================
+     FLOATING DECORATIONS
+     ======================================================== -->
+
+<div class="decor one">
+    ♡ ✦
+</div>
+
+<div class="decor two">
+    ✧ ♡
+</div>
+
+<div class="decor three">
+    ♡ ✧
+</div>
+
+
 <div class="container">
-<nav class="nav">
-<div class="brand"><div class="brand-orb">✦</div><span>AI Coding Agent</span></div>
-<div class="online"><span class="online-dot"></span>AI Online</div>
-</nav>
 
-<section class="hero">
-<div class="big-orb">✦</div>
-<h1>Build with Intelligence.</h1>
-<p>Generate · Test · Execute Python with AI</p>
-</section>
 
-<main class="dashboard">
-<section class="card">
-<div class="card-title">
-<h2>✦ Your Coding Task</h2>
-<span class="label">Input</span>
-</div>
-<textarea id="task" placeholder="Describe what you want the AI to build...&#10;&#10;Example: Create a Python program that checks whether a number is prime."></textarea>
-<button class="run" id="runButton" onclick="runAgent()">✦ Run AI Agent</button>
-<div id="status" class="status"></div>
-<div class="steps">
-<div class="step" id="step1"><span class="step-icon">1</span>Understanding task</div>
-<div class="step" id="step2"><span class="step-icon">2</span>Generating code</div>
-<div class="step" id="step3"><span class="step-icon">3</span>Testing code</div>
-<div class="step" id="step4"><span class="step-icon">4</span>Preparing report</div>
-</div>
-</section>
+<!-- ========================================================
+     HEADER
+     ======================================================== -->
 
-<section class="card">
-<div class="card-title">
-<h2>⌘ Generated Code</h2>
-<span class="label">Python</span>
-</div>
-<div class="code-window">
-<div class="window-bar">
-<span class="dot red"></span>
-<span class="dot yellow"></span>
-<span class="dot green"></span>
-<span class="file-name">generated_code.py</span>
-</div>
-<pre id="code">Your generated Python code will appear here.</pre>
-</div>
-<div class="actions">
-<button class="small-btn" onclick="copyCode()">Copy Code</button>
-<button class="small-btn" onclick="downloadCode()">Download .py</button>
-<button class="small-btn" onclick="runAgent()">Run Again</button>
-</div>
-</section>
-</main>
+<div class="hero">
 
-<section class="card results">
-<div class="card-title">
-<h2>◈ Test & Execution</h2>
-<span class="label">Results</span>
-</div>
-<div class="result-grid">
-<div class="stat"><div class="stat-number" id="totalTests">—</div><div class="stat-label">Tests</div></div>
-<div class="stat passed"><div class="stat-number" id="passedTests">—</div><div class="stat-label">Passed</div></div>
-<div class="stat failed"><div class="stat-number" id="failedTests">—</div><div class="stat-label">Failed</div></div>
-</div>
-<div class="test-list" id="testList">
-<div class="test-item">Test scenarios will appear here</div>
-</div>
-<div class="output">
-<div class="card-title">
-<h2>Terminal Output</h2>
-<span class="label">Execution</span>
-</div>
-<pre id="report">Your execution output and test report will appear here.</pre>
-</div>
-<div class="actions">
-<button class="small-btn" onclick="runAgent()">Run Tests Again</button>
-<button class="small-btn" onclick="runAgent()">Regenerate Code</button>
-</div>
-</section>
+    <div class="logo">
+        🤖
+    </div>
 
-<div class="footer">AI Coding Agent · Gemini · LangGraph · FastAPI</div>
+    <h1>
+
+        <span class="brand-script">
+            AI
+        </span>
+
+        Coding Agent
+
+    </h1>
+
+
+    <p class="subtitle">
+
+        Generate • Test • Execute Python Code with AI
+
+    </p>
+
+
+    <div class="tagline">
+
+        ✨ Your little AI coding assistant ✨
+
+    </div>
+
 </div>
+
+
+<!-- ========================================================
+     TASK
+     ======================================================== -->
+
+<div class="card">
+
+    <div class="card-header">
+
+        <div class="card-icon">
+            📝
+        </div>
+
+        <h2>
+            Enter Coding Task
+        </h2>
+
+    </div>
+
+
+    <textarea
+        id="task"
+        placeholder="Tell your AI coding assistant what you want to build... 💙
+
+Example:
+Write a Python program that calculates the factorial of 5."
+    ></textarea>
+
+
+    <button
+        id="runButton"
+        onclick="runAgent()"
+    >
+
+        🚀 Run AI Agent
+
+    </button>
+
+
+    <div
+        id="status"
+        class="status"
+    ></div>
+
+</div>
+
+
+<!-- ========================================================
+     CODE
+     ======================================================== -->
+
+<div class="card">
+
+    <div class="card-header">
+
+        <div class="card-icon">
+            💻
+        </div>
+
+        <h2>
+            Generated Code
+        </h2>
+
+    </div>
+
+
+    <div class="output-wrapper">
+
+        <div class="output-label">
+            PYTHON
+        </div>
+
+        <pre id="code">Your generated code will appear here. ✨</pre>
+
+    </div>
+
+</div>
+
+
+<!-- ========================================================
+     REPORT
+     ======================================================== -->
+
+<div class="card">
+
+    <div class="card-header">
+
+        <div class="card-icon">
+            🧪
+        </div>
+
+        <h2>
+            Test & Execution Report
+        </h2>
+
+    </div>
+
+
+    <div class="output-wrapper">
+
+        <div class="output-label">
+            REPORT
+        </div>
+
+        <pre id="report">Your test report will appear here. 🩵</pre>
+
+    </div>
+
+</div>
+
+
+<!-- ========================================================
+     FOOTER
+     ======================================================== -->
+
+<div class="footer">
+
+    Made with
+
+    <span class="footer-heart">
+        ♥
+    </span>
+
+    using Gemini + LangGraph
+
+</div>
+
+
+</div>
+
+
+<!-- ========================================================
+     JAVASCRIPT
+     ======================================================== -->
 
 <script>
-let lastCode="";
 
-function setStep(step){
-for(let i=1;i<=4;i++){
-const el=document.getElementById("step"+i);
-el.className="step";
+async function runAgent() {
+
+    const task =
+        document
+        .getElementById("task")
+        .value
+        .trim();
+
+
+    const status =
+        document
+        .getElementById("status");
+
+
+    const code =
+        document
+        .getElementById("code");
+
+
+    const report =
+        document
+        .getElementById("report");
+
+
+    const button =
+        document
+        .getElementById("runButton");
+
+
+    if (!task) {
+
+        status.innerText =
+            "🩵 Please enter a coding task first.";
+
+        status.className =
+            "status error";
+
+        return;
+    }
+
+
+    button.disabled = true;
+
+    button.innerText =
+        "💙 AI is thinking...";
+
+
+    status.innerText =
+        "✨ Generating code and running tests...";
+
+    status.className =
+        "status";
+
+
+    code.innerText =
+        "✨ Your AI is writing the code...";
+
+
+    report.innerText =
+        "🧪 Preparing tests...";
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/run",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        task: task
+                    })
+                }
+            );
+
+
+        let data;
+
+
+        try {
+
+            data =
+                await response.json();
+
+        } catch {
+
+            throw new Error(
+                "Server returned an invalid response."
+            );
+        }
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                data.detail ||
+                "Server error"
+            );
+        }
+
+
+        code.innerText =
+            data.code ||
+            "No code generated.";
+
+
+        report.innerText =
+            data.report ||
+            "No report generated.";
+
+
+        status.innerText =
+            "💙 Done! Your AI agent completed the task.";
+
+        status.className =
+            "status success";
+
+
+    } catch (error) {
+
+        status.innerText =
+            "💔 " + error.message;
+
+        status.className =
+            "status error";
+
+
+        code.innerText =
+            "No code generated.";
+
+
+        report.innerText =
+            "Something went wrong.";
+
+    } finally {
+
+        button.disabled = false;
+
+        button.innerText =
+            "🚀 Run AI Agent";
+    }
+
 }
-if(step>0){
-for(let i=1;i<step;i++)document.getElementById("step"+i).className="step done";
-document.getElementById("step"+step).className="step active";
-}
-}
 
-function updateStats(report){
-const matches=report.match(/^\\d+\\./gm)||[];
-const total=matches.length||4;
-const output=report.toLowerCase();
-const failed=(output.match(/fail|error/g)||[]).length;
-const passed=Math.max(total-failed,0);
-document.getElementById("totalTests").innerText=total;
-document.getElementById("passedTests").innerText=passed;
-document.getElementById("failedTests").innerText=failed;
-const list=document.getElementById("testList");
-list.innerHTML="";
-const scenarios=["Normal Case","Boundary Case","Edge Case","Invalid Input"];
-scenarios.slice(0,total).forEach((name,i)=>{
-const div=document.createElement("div");
-div.className="test-item";
-div.innerText=name;
-list.appendChild(div);
-});
-}
-
-async function runAgent(){
-const task=document.getElementById("task").value.trim();
-const status=document.getElementById("status");
-const code=document.getElementById("code");
-const report=document.getElementById("report");
-const button=document.getElementById("runButton");
-
-if(!task){
-status.innerText="Please enter a coding task.";
-status.className="status error";
-return;
-}
-
-button.disabled=true;
-button.innerText="AI Agent Running...";
-status.innerText="AI is working...";
-status.className="status";
-code.innerText="Generating code...";
-report.innerText="Running tests...";
-setStep(1);
-
-setTimeout(()=>setStep(2),700);
-setTimeout(()=>setStep(3),1600);
-
-try{
-const response=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task})});
-let data;
-try{data=await response.json()}catch{throw new Error("Server returned an invalid response.")}
-if(!response.ok)throw new Error(data.detail||"Server error");
-
-lastCode=data.code||"";
-code.innerText=lastCode||"No code generated.";
-report.innerText=data.report||"No report generated.";
-updateStats(data.report||"");
-setStep(4);
-
-setTimeout(()=>{
-setStep(0);
-status.innerText="AI Agent completed successfully.";
-status.className="status success";
-},500);
-
-}catch(error){
-setStep(0);
-status.innerText=error.message;
-status.className="status error";
-code.innerText="";
-report.innerText="";
-}finally{
-button.disabled=false;
-button.innerText="✦ Run AI Agent";
-}
-}
-
-function copyCode(){
-if(!lastCode)return;
-navigator.clipboard.writeText(lastCode);
-const status=document.getElementById("status");
-status.innerText="Code copied to clipboard.";
-status.className="status success";
-}
-
-function downloadCode(){
-if(!lastCode)return;
-const blob=new Blob([lastCode],{type:"text/plain"});
-const url=URL.createObjectURL(blob);
-const a=document.createElement("a");
-a.href=url;
-a.download="generated_code.py";
-a.click();
-URL.revokeObjectURL(url);
-}
 </script>
+
+
 </body>
+
 </html>
 """
 
+
+# ============================================================
+# 12. HEALTH CHECK
+# ============================================================
+
 @app.get("/health")
 def health():
-    return {"status":"healthy","gemini_configured":bool(api_key),"model":MODEL_NAME}
+
+    return {
+        "status": "healthy",
+        "gemini_configured": bool(api_key),
+        "model": MODEL_NAME,
+    }
+
+
+# ============================================================
+# 13. RUN AI AGENT
+# ============================================================
 
 @app.post("/run")
-def run_agent(request:TaskRequest):
-    task=request.task.strip()
-    if not task:
-        raise HTTPException(status_code=400,detail="Task cannot be empty.")
-    if not api_key:
-        raise HTTPException(status_code=500,detail="GEMINI_API_KEY is not configured on the server.")
-    if llm is None:
-        raise HTTPException(status_code=500,detail="Gemini could not be initialized. Check GEMINI_API_KEY.")
-    try:
-        initial_state:CrewState={"messages":[HumanMessage(content=task)],"code":None,"report":None}
-        result=rt_app.invoke(initial_state,config={"recursion_limit":20})
-        return {"success":True,"task":task,"code":result.get("code",""),"report":result.get("report","")}
-    except Exception as exc:
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500,detail=f"AI Agent Error: {str(exc)}")
+def run_agent(request: TaskRequest):
 
-if __name__=="__main__":
+    task = request.task.strip()
+
+
+    if not task:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Task cannot be empty.",
+        )
+
+
+    if not api_key:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "GEMINI_API_KEY is not configured "
+                "on the Render server. "
+                "Add GEMINI_API_KEY under Render "
+                "Environment Variables and redeploy."
+            ),
+        )
+
+
+    if llm is None:
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Gemini could not be initialized. "
+                "Check GEMINI_API_KEY, GEMINI_MODEL, "
+                "and installed package versions."
+            ),
+        )
+
+
+    try:
+
+        initial_state: CrewState = {
+
+            "messages": [
+                HumanMessage(content=task)
+            ],
+
+            "code": None,
+
+            "report": None,
+        }
+
+
+        result = rt_app.invoke(
+
+            initial_state,
+
+            config={
+                "recursion_limit": 20
+            },
+        )
+
+
+        return {
+
+            "success": True,
+
+            "task": task,
+
+            "code": result.get(
+                "code",
+                ""
+            ),
+
+            "report": result.get(
+                "report",
+                ""
+            ),
+        }
+
+
+    except Exception as exc:
+
+        print(
+            traceback.format_exc()
+        )
+
+
+        raise HTTPException(
+
+            status_code=500,
+
+            detail=(
+                f"AI Agent Error: {str(exc)}"
+            ),
+        )
+
+
+# ============================================================
+# 14. LOCAL RUN
+# ============================================================
+
+if __name__ == "__main__":
+
     import uvicorn
-    port=int(os.getenv("PORT","8000"))
-    uvicorn.run(app,host="0.0.0.0",port=port,reload=False)
+
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "8000"
+        )
+    )
+
+
+    uvicorn.run(
+
+        app,
+
+        host="0.0.0.0",
+
+        port=port,
+
+        reload=False,
+    )
