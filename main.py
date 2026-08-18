@@ -17,7 +17,7 @@ from pydantic import BaseModel
 # ============================================================
 
 app = FastAPI(
-    title="AI Coding Agent",
+    title="Lavender AI Coding Agent",
     description="AI-powered coding, testing and execution pipeline",
     version="2.0.0",
 )
@@ -72,10 +72,6 @@ class TaskRequest(BaseModel):
 # ============================================================
 
 def extract_content(response) -> str:
-    """
-    Safely convert a LangChain response to plain text.
-    """
-
     content = getattr(response, "content", response)
 
     if isinstance(content, str):
@@ -99,10 +95,6 @@ def extract_content(response) -> str:
 
 
 def clean_python_code(code: str) -> str:
-    """
-    Remove accidental Markdown code fences from Gemini output.
-    """
-
     code = str(code).strip()
 
     if code.startswith("```python"):
@@ -126,12 +118,10 @@ def clean_python_code(code: str) -> str:
 
 def run_python_code(code: str) -> str:
     """
-    Execute generated Python code.
-
     WARNING:
-    This is NOT a secure sandbox.
-    Do not use this approach for arbitrary untrusted users
-    in a production environment.
+    This uses exec() and is NOT a secure sandbox.
+    Do not expose arbitrary code execution publicly
+    without adding proper isolation.
     """
 
     if not isinstance(code, str):
@@ -179,9 +169,6 @@ def run_python_code(code: str) -> str:
 # ============================================================
 
 def generate_test_cases(task_description: str) -> str:
-    """
-    Ask Gemini to generate QA test scenarios.
-    """
 
     if llm is None:
         return (
@@ -219,12 +206,13 @@ Do not add explanations outside the numbered list.
 # ============================================================
 
 def real_time_developer(state: CrewState):
+
     print("[Developer] Generating Python code...")
 
     if llm is None:
         raise ValueError(
             "Gemini API is not configured. "
-            "Set GEMINI_API_KEY in the Render Environment variables."
+            "Set GEMINI_API_KEY in Render Environment Variables."
         )
 
     messages = state.get("messages", [])
@@ -237,7 +225,7 @@ def real_time_developer(state: CrewState):
     developer_prompt = f"""
 You are an expert Python developer.
 
-Write a complete, executable Python program for the following task:
+Write a complete, executable Python program for:
 
 {task}
 
@@ -249,11 +237,11 @@ Requirements:
 - The program must be executable directly with Python.
 - Use clear variable names.
 - Handle reasonable edge cases.
-- If the task asks for output, make sure the program prints the result.
+- If the task asks for output, print the result.
 - Do not explain the code outside the Python source.
 - Do not install external packages.
 - Prefer Python standard library functionality.
-- Avoid requiring interactive user input unless the task specifically requires it.
+- Avoid interactive input unless specifically requested.
 """
 
     response = llm.invoke(developer_prompt)
@@ -280,6 +268,7 @@ Requirements:
 # ============================================================
 
 def real_time_tester(state: CrewState):
+
     print(
         "[Tester] Generating tests and executing code..."
     )
@@ -356,7 +345,7 @@ rt_app = workflow.compile()
 
 
 # ============================================================
-# 11. PINK AESTHETIC FRONTEND
+# 11. LAVENDER FRONTEND
 # ============================================================
 
 @app.get("/", response_class=HTMLResponse)
@@ -376,7 +365,7 @@ async def home():
     content="width=device-width, initial-scale=1.0"
 >
 
-<title>AI Coding Agent 💗</title>
+<title>Lavender AI Coding Agent 💜</title>
 
 <link
     rel="preconnect"
@@ -394,6 +383,7 @@ async def home():
     rel="stylesheet"
 >
 
+
 <style>
 
 /* =========================================================
@@ -410,33 +400,37 @@ html {
 
 body {
     margin: 0;
+
     min-height: 100vh;
 
     font-family: "DM Sans", sans-serif;
 
-    color: #55243f;
+    color: #3f3154;
 
     background:
         radial-gradient(
             circle at 5% 5%,
-            rgba(255, 182, 213, 0.75),
-            transparent 28%
-        ),
-        radial-gradient(
-            circle at 95% 10%,
-            rgba(220, 190, 255, 0.70),
+            rgba(221, 195, 255, 0.85),
             transparent 30%
         ),
+
+        radial-gradient(
+            circle at 95% 10%,
+            rgba(196, 181, 253, 0.75),
+            transparent 30%
+        ),
+
         radial-gradient(
             circle at 50% 100%,
-            rgba(255, 205, 228, 0.75),
+            rgba(233, 213, 255, 0.9),
             transparent 35%
         ),
+
         linear-gradient(
             135deg,
-            #fff5fa,
-            #ffe1ee 45%,
-            #f4e6ff
+            #faf5ff,
+            #eee1ff 45%,
+            #e5d5ff
         );
 
     background-attachment: fixed;
@@ -446,7 +440,7 @@ body {
 
 
 /* =========================================================
-   DECORATIVE BACKGROUND
+   DECORATIONS
    ========================================================= */
 
 .decor {
@@ -463,7 +457,7 @@ body {
     top: 8%;
     left: 4%;
 
-    color: rgba(236, 72, 153, 0.25);
+    color: rgba(139, 92, 246, 0.28);
 
     font-size: 42px;
 
@@ -475,7 +469,7 @@ body {
     top: 30%;
     right: 5%;
 
-    color: rgba(168, 85, 247, 0.25);
+    color: rgba(124, 58, 237, 0.25);
 
     font-size: 34px;
 
@@ -487,7 +481,7 @@ body {
     bottom: 10%;
     left: 7%;
 
-    color: rgba(236, 72, 153, 0.22);
+    color: rgba(168, 85, 247, 0.25);
 
     font-size: 32px;
 
@@ -497,7 +491,7 @@ body {
 
 
 /* =========================================================
-   MAIN
+   MAIN CONTAINER
    ========================================================= */
 
 .container {
@@ -539,12 +533,13 @@ body {
     background:
         linear-gradient(
             135deg,
-            #ff75ae,
+            #a78bfa,
             #c084fc
         );
 
     box-shadow:
-        0 20px 45px rgba(236, 72, 153, 0.28);
+        0 20px 45px
+        rgba(124, 58, 237, 0.25);
 
     font-size: 45px;
 
@@ -569,13 +564,13 @@ h1 {
 
     letter-spacing: -2px;
 
-    color: #762654;
+    color: #51347a;
 }
 
 .brand-script {
     font-family: "Pacifico", cursive;
 
-    color: #ec4899;
+    color: #8b5cf6;
 
     font-size: 0.72em;
 }
@@ -583,7 +578,7 @@ h1 {
 .subtitle {
     margin: 13px 0 0;
 
-    color: #955779;
+    color: #78628f;
 
     font-size: 18px;
 
@@ -605,12 +600,13 @@ h1 {
     border:
         1px solid rgba(255,255,255,0.95);
 
-    color: #b33d78;
+    color: #7953a6;
 
     font-size: 14px;
 
     box-shadow:
-        0 8px 25px rgba(180, 65, 120, 0.10);
+        0 8px 25px
+        rgba(110, 70, 150, 0.10);
 
     backdrop-filter: blur(10px);
 }
@@ -631,10 +627,11 @@ h1 {
         rgba(255,255,255,0.68);
 
     border:
-        1px solid rgba(255,255,255,0.92);
+        1px solid rgba(255,255,255,0.95);
 
     box-shadow:
-        0 25px 60px rgba(150, 60, 110, 0.12);
+        0 25px 60px
+        rgba(91, 58, 125, 0.12);
 
     backdrop-filter: blur(18px);
 
@@ -649,7 +646,8 @@ h1 {
     transform: translateY(-3px);
 
     box-shadow:
-        0 30px 70px rgba(150, 60, 110, 0.17);
+        0 30px 70px
+        rgba(91, 58, 125, 0.17);
 }
 
 .card-header {
@@ -676,20 +674,21 @@ h1 {
     background:
         linear-gradient(
             135deg,
-            #ffe0ed,
-            #f0dcff
+            #e9ddff,
+            #f1e7ff
         );
 
     font-size: 23px;
 
     box-shadow:
-        0 7px 20px rgba(200, 80, 140, 0.10);
+        0 7px 20px
+        rgba(110, 70, 150, 0.10);
 }
 
 h2 {
     margin: 0;
 
-    color: #702653;
+    color: #563579;
 
     font-size: 22px;
 
@@ -711,16 +710,16 @@ textarea {
     border-radius: 21px;
 
     border:
-        2px solid #f5bfd7;
+        2px solid #d8c3f5;
 
     outline: none;
 
     resize: vertical;
 
     background:
-        rgba(255, 248, 252, 0.90);
+        rgba(253, 249, 255, 0.92);
 
-    color: #51243f;
+    color: #443052;
 
     font-family: "DM Sans", sans-serif;
 
@@ -735,17 +734,17 @@ textarea {
 }
 
 textarea::placeholder {
-    color: #c28aa8;
+    color: #a891bb;
 }
 
 textarea:focus {
-    border-color: #ec4899;
+    border-color: #8b5cf6;
 
     background: white;
 
     box-shadow:
         0 0 0 5px
-        rgba(236, 72, 153, 0.10);
+        rgba(139, 92, 246, 0.11);
 }
 
 
@@ -767,8 +766,8 @@ button {
     background:
         linear-gradient(
             135deg,
-            #ec4899,
-            #c084fc
+            #8b5cf6,
+            #a855f7
         );
 
     color: white;
@@ -783,7 +782,7 @@ button {
 
     box-shadow:
         0 14px 30px
-        rgba(236, 72, 153, 0.25);
+        rgba(124, 58, 237, 0.25);
 
     transition:
         transform 0.2s ease,
@@ -794,11 +793,11 @@ button {
 button:hover {
     transform: translateY(-2px);
 
-    filter: brightness(1.04);
+    filter: brightness(1.05);
 
     box-shadow:
         0 18px 38px
-        rgba(236, 72, 153, 0.33);
+        rgba(124, 58, 237, 0.33);
 }
 
 button:active {
@@ -809,8 +808,8 @@ button:disabled {
     background:
         linear-gradient(
             135deg,
-            #d9a6be,
-            #c8b1d8
+            #b8a5ca,
+            #b7a7c8
         );
 
     cursor: not-allowed;
@@ -838,16 +837,16 @@ button:disabled {
 }
 
 .success {
-    color: #16805a;
+    color: #23845d;
 }
 
 .error {
-    color: #d43870;
+    color: #c24175;
 }
 
 
 /* =========================================================
-   OUTPUT
+   OUTPUT PANELS
    ========================================================= */
 
 .output-wrapper {
@@ -865,12 +864,13 @@ button:disabled {
     border-radius: 999px;
 
     background:
-        rgba(255, 220, 237, 0.15);
+        rgba(216, 190, 255, 0.14);
 
     border:
-        1px solid rgba(255, 190, 220, 0.15);
+        1px solid
+        rgba(216, 190, 255, 0.18);
 
-    color: #ffacd1;
+    color: #cdb4f7;
 
     font-size: 10px;
 
@@ -897,14 +897,15 @@ pre {
     background:
         linear-gradient(
             145deg,
-            #35172d,
-            #28152d
+            #241735,
+            #1d1630
         );
 
     border:
-        1px solid rgba(255,255,255,0.08);
+        1px solid
+        rgba(255,255,255,0.08);
 
-    color: #ffd7eb;
+    color: #eadcff;
 
     font-family:
         "Courier New",
@@ -929,13 +930,13 @@ pre {
 
     text-align: center;
 
-    color: #a86a8c;
+    color: #846b9b;
 
     font-size: 13px;
 }
 
 .footer-heart {
-    color: #ec4899;
+    color: #8b5cf6;
 
     font-size: 17px;
 }
@@ -969,15 +970,21 @@ pre {
 @keyframes floatOne {
 
     0% {
-        transform: translateY(0) rotate(0deg);
+        transform:
+            translateY(0)
+            rotate(0deg);
     }
 
     50% {
-        transform: translateY(-18px) rotate(10deg);
+        transform:
+            translateY(-18px)
+            rotate(10deg);
     }
 
     100% {
-        transform: translateY(0) rotate(0deg);
+        transform:
+            translateY(0)
+            rotate(0deg);
     }
 }
 
@@ -1065,7 +1072,9 @@ pre {
 <body>
 
 
-<!-- Decorative elements -->
+<!-- ========================================================
+     DECORATIVE ELEMENTS
+     ======================================================== -->
 
 <div class="decor one">
     ♡ ✦
@@ -1130,10 +1139,7 @@ pre {
 
     <textarea
         id="task"
-        placeholder="Tell your AI coding assistant what you want to build... 💗
-
-Example:
-Write a Python program that calculates the factorial of 5."
+        placeholder="Tell your AI coding assistant what you want to build... 💜&#10;&#10;Example: Write a Python program that calculates the factorial of 5."
     ></textarea>
 
 
@@ -1210,7 +1216,7 @@ Write a Python program that calculates the factorial of 5."
             REPORT
         </div>
 
-        <pre id="report">Your test report will appear here. 🌸</pre>
+        <pre id="report">Your test report will appear here. 🪻</pre>
 
     </div>
 
@@ -1260,12 +1266,10 @@ async function runAgent() {
         document.getElementById("runButton");
 
 
-    /* Validate task */
-
     if (!task) {
 
         status.innerText =
-            "🌸 Please enter a coding task first.";
+            "🪻 Please enter a coding task first.";
 
         status.className =
             "status error";
@@ -1274,12 +1278,10 @@ async function runAgent() {
     }
 
 
-    /* Disable button */
-
     button.disabled = true;
 
     button.innerText =
-        "💗 AI is thinking...";
+        "💜 AI is thinking...";
 
 
     status.innerText =
@@ -1319,8 +1321,6 @@ async function runAgent() {
         let data;
 
 
-        /* Parse response */
-
         try {
 
             data =
@@ -1335,8 +1335,6 @@ async function runAgent() {
         }
 
 
-        /* Handle server errors */
-
         if (!response.ok) {
 
             throw new Error(
@@ -1347,24 +1345,18 @@ async function runAgent() {
         }
 
 
-        /* Display generated code */
-
         code.innerText =
             data.code ||
             "No code generated.";
 
-
-        /* Display report */
 
         report.innerText =
             data.report ||
             "No report generated.";
 
 
-        /* Success */
-
         status.innerText =
-            "💗 Done! Your AI agent completed the task.";
+            "💜 Done! Your AI agent completed the task.";
 
         status.className =
             "status success";
@@ -1433,7 +1425,6 @@ def run_agent(request: TaskRequest):
             detail="Task cannot be empty.",
         )
 
-
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -1445,7 +1436,6 @@ def run_agent(request: TaskRequest):
             ),
         )
 
-
     if llm is None:
         raise HTTPException(
             status_code=500,
@@ -1455,7 +1445,6 @@ def run_agent(request: TaskRequest):
                 "and the installed package versions."
             ),
         )
-
 
     try:
 
@@ -1467,14 +1456,12 @@ def run_agent(request: TaskRequest):
             "report": None,
         }
 
-
         result = rt_app.invoke(
             initial_state,
             config={
                 "recursion_limit": 20
             },
         )
-
 
         return {
             "success": True,
@@ -1489,7 +1476,6 @@ def run_agent(request: TaskRequest):
             ),
         }
 
-
     except Exception as exc:
 
         print(
@@ -1498,9 +1484,7 @@ def run_agent(request: TaskRequest):
 
         raise HTTPException(
             status_code=500,
-            detail=(
-                f"AI Agent Error: {str(exc)}"
-            ),
+            detail=f"AI Agent Error: {str(exc)}",
         )
 
 
