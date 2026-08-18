@@ -1,7 +1,5 @@
 import os
 import sys
-import json
-import io
 import re
 import subprocess
 import tempfile
@@ -21,7 +19,7 @@ app=FastAPI(
 )
 
 api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-MODEL_NAME="gemini-3.6-flash"
+MODEL_NAME=os.getenv("GEMINI_MODEL","gemini-3.6-flash")
 llm=None
 
 if api_key:
@@ -45,31 +43,24 @@ class TaskRequest(BaseModel):
 
 def extract_content(response)->str:
     content=getattr(response,"content",response)
-
     if isinstance(content,str):
         return content
-
     if isinstance(content,list):
         parts=[]
-
         for item in content:
             if isinstance(item,dict):
                 if "text" in item:
                     parts.append(str(item["text"]))
             else:
                 parts.append(str(item))
-
         return "\n".join(parts)
-
     return str(content)
 
 def clean_python_code(code:str)->str:
     code=str(code).strip()
-
     code=re.sub(r"^```python\s*","",code,flags=re.IGNORECASE)
     code=re.sub(r"^```\s*","",code)
     code=re.sub(r"\s*```$","",code)
-
     return code.strip()
 
 def validate_python(code:str)->str:
@@ -200,12 +191,12 @@ Original task:
 Current Python program:
 {code}
 
-Problem found during validation or execution:
+Problem found:
 {error}
 
 Fix the program completely.
 
-Strict requirements:
+Requirements:
 - Return the COMPLETE corrected Python program.
 - Return ONLY Python source code.
 - Do NOT use Markdown.
@@ -213,9 +204,9 @@ Strict requirements:
 - Do NOT explain the fix.
 - Every function called must be defined.
 - Every variable used must exist.
-- Fix all syntax errors.
-- Fix all NameError issues.
-- Fix all logical issues that are obvious from the error.
+- Fix syntax errors.
+- Fix NameError issues.
+- Fix obvious logical errors.
 - Preserve the requested functionality.
 - Make the program directly executable.
 - Handle reasonable edge cases.
@@ -225,56 +216,12 @@ Return only the corrected code."""
     try:
         response=llm.invoke(prompt)
         fixed=clean_python_code(extract_content(response))
-
         if fixed:
             return fixed
-
     except Exception as exc:
         print(f"Repair error: {exc}")
 
     return code
-
-def build_and_test(task:str):
-    code=generate_code(task)
-    attempts=[]
-
-    for attempt in range(3):
-        validation_error=validate_python(code)
-
-        if validation_error:
-            attempts.append(
-                f"Repair attempt {attempt+1}: syntax/validation error"
-            )
-            code=repair_code(
-                task,
-                code,
-                validation_error
-            )
-            continue
-
-        execution_result=run_python_code(code)
-
-        if execution_result.startswith("Execution Error:"):
-            attempts.append(
-                f"Repair attempt {attempt+1}: execution error"
-            )
-            code=repair_code(
-                task,
-                code,
-                execution_result
-            )
-            continue
-
-        return code,execution_result,attempts
-
-    final_validation=validate_python(code)
-
-    if final_validation:
-        return code,"Execution Error:\n"+final_validation,attempts
-
-    final_execution=run_python_code(code)
-
-    return code,final_execution,attempts
 
 def real_time_developer(state:CrewState):
     messages=state.get("messages",[])
@@ -283,7 +230,6 @@ def real_time_developer(state:CrewState):
         raise ValueError("No coding task was provided.")
 
     task=messages[-1].content
-
     code=generate_code(task)
 
     return {
@@ -302,13 +248,14 @@ def real_time_tester(state:CrewState):
     if not code:
         raise ValueError("No generated code available.")
 
-    attempts=[]
+    repairs=[]
 
     for attempt in range(3):
+
         validation_error=validate_python(code)
 
         if validation_error:
-            attempts.append(f"Validation repair {attempt+1}")
+            repairs.append(f"Validation repair {attempt+1}")
             code=repair_code(
                 task,
                 code,
@@ -319,7 +266,7 @@ def real_time_tester(state:CrewState):
         execution_result=run_python_code(code)
 
         if execution_result.startswith("Execution Error:"):
-            attempts.append(f"Execution repair {attempt+1}")
+            repairs.append(f"Execution repair {attempt+1}")
             code=repair_code(
                 task,
                 code,
@@ -333,7 +280,6 @@ def real_time_tester(state:CrewState):
 
     if final_validation:
         execution_result="Execution Error:\n"+final_validation
-
     else:
         execution_result=run_python_code(code)
 
@@ -344,7 +290,7 @@ def real_time_tester(state:CrewState):
     else:
         status="PASSED"
 
-    repair_text="\n".join(attempts) if attempts else "No repairs were required."
+    repair_history="\n".join(repairs) if repairs else "No repairs were required."
 
     report=f"""STATUS
 
@@ -360,7 +306,7 @@ AI TEST SCENARIOS
 
 AI REPAIR HISTORY
 
-{repair_text}"""
+{repair_history}"""
 
     return {
         "code":code,
@@ -369,30 +315,12 @@ AI REPAIR HISTORY
 
 workflow=StateGraph(CrewState)
 
-workflow.add_node(
-    "developer",
-    real_time_developer
-)
+workflow.add_node("developer",real_time_developer)
+workflow.add_node("tester",real_time_tester)
 
-workflow.add_node(
-    "tester",
-    real_time_tester
-)
-
-workflow.add_edge(
-    START,
-    "developer"
-)
-
-workflow.add_edge(
-    "developer",
-    "tester"
-)
-
-workflow.add_edge(
-    "tester",
-    END
-)
+workflow.add_edge(START,"developer")
+workflow.add_edge("developer","tester")
+workflow.add_edge("tester",END)
 
 rt_app=workflow.compile()
 
@@ -405,32 +333,43 @@ async def home():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>AI Coding Agent</title>
+
 <style>
-*{box-sizing:border-box}
+
+*{
+box-sizing:border-box;
+}
 
 :root{
---bg:#160d24;
---bg2:#211135;
---lavender:#c084fc;
---purple:#8b5cf6;
---violet:#7c3aed;
---pink:#e879f9;
---soft:#f5edff;
---muted:#c4b5fd;
---glass:rgba(255,255,255,.075);
---border:rgba(216,180,254,.18);
+--lavender-50:#faf5ff;
+--lavender-100:#f3e8ff;
+--lavender-200:#e9d5ff;
+--lavender-300:#d8b4fe;
+--lavender-400:#c084fc;
+--lavender-500:#a855f7;
+--lavender-600:#9333ea;
+--lavender-700:#7e22ce;
+--purple:#6d28d9;
+--deep:#4c1d95;
+--text:#3b2463;
+--muted:#8067a5;
+--white:#ffffff;
+}
+
+html{
+scroll-behavior:smooth;
 }
 
 body{
 margin:0;
 min-height:100vh;
-font-family:"Segoe UI",Inter,Arial,sans-serif;
-color:white;
+font-family:"Segoe UI",Arial,sans-serif;
+color:var(--text);
 background:
-radial-gradient(circle at 10% 10%,rgba(192,132,252,.35),transparent 28%),
-radial-gradient(circle at 90% 15%,rgba(232,121,249,.25),transparent 25%),
-radial-gradient(circle at 50% 90%,rgba(124,58,237,.3),transparent 35%),
-linear-gradient(135deg,#12091c,#1b0d2b,#24103c);
+radial-gradient(circle at 10% 10%,rgba(216,180,254,.8),transparent 28%),
+radial-gradient(circle at 90% 10%,rgba(233,213,255,.9),transparent 30%),
+radial-gradient(circle at 50% 100%,rgba(192,132,252,.55),transparent 35%),
+linear-gradient(135deg,#f5edff,#eee1ff,#e9d5ff);
 background-attachment:fixed;
 }
 
@@ -439,18 +378,18 @@ content:"";
 position:fixed;
 inset:0;
 pointer-events:none;
+opacity:.25;
 background-image:
-linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
-linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
-background-size:55px 55px;
-mask-image:linear-gradient(to bottom,black,transparent);
+linear-gradient(rgba(109,40,217,.07) 1px,transparent 1px),
+linear-gradient(90deg,rgba(109,40,217,.07) 1px,transparent 1px);
+background-size:45px 45px;
 }
 
 .container{
-max-width:1250px;
-margin:auto;
-padding:24px 20px 60px;
 position:relative;
+max-width:1200px;
+margin:auto;
+padding:22px 20px 60px;
 }
 
 .nav{
@@ -458,30 +397,37 @@ height:68px;
 display:flex;
 align-items:center;
 justify-content:space-between;
-padding:0 20px;
-border:1px solid var(--border);
-background:rgba(255,255,255,.07);
-backdrop-filter:blur(25px);
+padding:0 22px;
+border:1px solid rgba(126,34,206,.12);
+background:rgba(255,255,255,.55);
+backdrop-filter:blur(22px);
 border-radius:22px;
-box-shadow:0 20px 60px rgba(0,0,0,.25);
-margin-bottom:65px;
+box-shadow:0 15px 45px rgba(109,40,217,.12);
 }
 
 .brand{
 display:flex;
 align-items:center;
 gap:12px;
-font-weight:700;
+font-weight:800;
+color:#4c1d95;
 }
 
 .brand-orb{
-width:38px;
-height:38px;
+width:39px;
+height:39px;
 display:grid;
 place-items:center;
 border-radius:13px;
-background:linear-gradient(135deg,#d8b4fe,#a855f7,#7c3aed);
-box-shadow:0 0 30px rgba(192,132,252,.5);
+color:white;
+font-size:19px;
+background:linear-gradient(
+135deg,
+#d8b4fe,
+#a855f7,
+#7e22ce
+);
+box-shadow:0 8px 25px rgba(126,34,206,.3);
 }
 
 .online{
@@ -489,78 +435,98 @@ display:flex;
 align-items:center;
 gap:8px;
 font-size:13px;
-color:#d8b4fe;
+font-weight:600;
+color:#7e22ce;
 }
 
 .online-dot{
 width:8px;
 height:8px;
 border-radius:50%;
-background:#86efac;
-box-shadow:0 0 15px #86efac;
+background:#22c55e;
+box-shadow:0 0 12px #22c55e;
 }
 
 .hero{
 text-align:center;
-margin-bottom:55px;
+padding:80px 0 65px;
 }
 
 .orb{
-width:100px;
-height:100px;
-margin:0 auto 25px;
+width:105px;
+height:105px;
 display:grid;
 place-items:center;
-border-radius:32px;
-font-size:43px;
+margin:0 auto 28px;
+border-radius:34px;
+font-size:45px;
+color:white;
 background:
-radial-gradient(circle at 35% 25%,#fff,#e9d5ff 18%,#c084fc 40%,#9333ea 70%,#581c87);
+radial-gradient(
+circle at 30% 25%,
+#ffffff,
+#e9d5ff 20%,
+#c084fc 45%,
+#a855f7 65%,
+#6d28d9
+);
 box-shadow:
-0 0 35px rgba(192,132,252,.65),
-0 0 100px rgba(232,121,249,.2);
+0 15px 45px rgba(126,34,206,.3),
+0 0 90px rgba(192,132,252,.5);
 animation:float 4s ease-in-out infinite;
 }
 
 @keyframes float{
-0%,100%{transform:translateY(0)}
-50%{transform:translateY(-9px)}
+0%,100%{
+transform:translateY(0);
+}
+50%{
+transform:translateY(-10px);
+}
 }
 
 .hero h1{
 margin:0;
-font-size:clamp(42px,6vw,70px);
+font-size:clamp(42px,6vw,68px);
 letter-spacing:-3px;
-background:linear-gradient(90deg,#fff,#f3e8ff,#d8b4fe,#f0abfc);
+font-weight:800;
+background:linear-gradient(
+90deg,
+#4c1d95,
+#7e22ce,
+#a855f7,
+#6d28d9
+);
 -webkit-background-clip:text;
 -webkit-text-fill-color:transparent;
 }
 
 .hero p{
 margin:18px 0 0;
-color:#c4b5fd;
 font-size:18px;
+color:#8067a5;
+font-weight:500;
 }
 
 .dashboard{
 display:grid;
-grid-template-columns:1fr 1.25fr;
+grid-template-columns:1fr 1.2fr;
 gap:22px;
 }
 
 .card{
-background:var(--glass);
-border:1px solid var(--border);
-backdrop-filter:blur(25px);
--webkit-backdrop-filter:blur(25px);
+background:rgba(255,255,255,.62);
+border:1px solid rgba(126,34,206,.13);
+backdrop-filter:blur(20px);
 border-radius:25px;
 padding:26px;
-box-shadow:0 25px 70px rgba(0,0,0,.23);
+box-shadow:0 20px 60px rgba(109,40,217,.11);
 transition:.3s;
 }
 
 .card:hover{
 transform:translateY(-3px);
-border-color:rgba(216,180,254,.32);
+box-shadow:0 25px 70px rgba(109,40,217,.16);
 }
 
 .title{
@@ -573,36 +539,41 @@ margin-bottom:20px;
 .title h2{
 margin:0;
 font-size:18px;
+color:#4c1d95;
 }
 
 .label{
 font-size:10px;
 letter-spacing:1.5px;
 text-transform:uppercase;
-color:#a78bfa;
+font-weight:700;
+color:#a855f7;
 }
 
 textarea{
 width:100%;
 height:260px;
-resize:none;
 padding:20px;
-border-radius:18px;
-border:1px solid rgba(216,180,254,.16);
+resize:none;
 outline:none;
-background:rgba(8,3,16,.55);
-color:white;
-font:15px/1.7 "Segoe UI",sans-serif;
+border-radius:18px;
+border:1px solid rgba(126,34,206,.15);
+background:rgba(250,245,255,.78);
+color:#3b2463;
+font:15px/1.7 "Segoe UI",Arial,sans-serif;
+box-shadow:inset 0 2px 12px rgba(109,40,217,.04);
 transition:.25s;
 }
 
 textarea::placeholder{
-color:#88769d;
+color:#a18abf;
 }
 
 textarea:focus{
-border-color:#c084fc;
-box-shadow:0 0 0 4px rgba(192,132,252,.1),0 0 30px rgba(192,132,252,.08);
+border-color:#a855f7;
+box-shadow:
+0 0 0 4px rgba(168,85,247,.09),
+0 10px 30px rgba(109,40,217,.08);
 }
 
 .run{
@@ -613,30 +584,37 @@ border:0;
 border-radius:16px;
 color:white;
 font-size:15px;
-font-weight:700;
+font-weight:800;
 cursor:pointer;
-background:linear-gradient(110deg,#7c3aed,#a855f7,#e879f9,#a855f7);
+background:linear-gradient(
+110deg,
+#7e22ce,
+#a855f7,
+#c084fc,
+#a855f7,
+#7e22ce
+);
 background-size:250% 100%;
-box-shadow:0 12px 35px rgba(139,92,246,.35);
+box-shadow:0 12px 30px rgba(126,34,206,.28);
 transition:.3s;
 }
 
 .run:hover{
 background-position:100% 0;
 transform:translateY(-2px);
-box-shadow:0 18px 45px rgba(192,132,252,.45);
+box-shadow:0 17px 40px rgba(126,34,206,.35);
 }
 
 .run:disabled{
-opacity:.55;
+opacity:.6;
 cursor:not-allowed;
 transform:none;
 }
 
 .steps{
-margin-top:22px;
 display:grid;
-gap:10px;
+gap:11px;
+margin-top:23px;
 }
 
 .step{
@@ -644,43 +622,45 @@ display:flex;
 align-items:center;
 gap:10px;
 font-size:13px;
-color:#6f617e;
+color:#a18abf;
 }
 
 .step-icon{
-width:22px;
-height:22px;
+width:23px;
+height:23px;
 display:grid;
 place-items:center;
 border-radius:50%;
-border:1px solid #493b57;
+border:1px solid #d8b4fe;
 font-size:10px;
 }
 
 .step.active{
-color:#eadcff;
+color:#7e22ce;
+font-weight:700;
 }
 
 .step.active .step-icon{
-border-color:#c084fc;
-color:#c084fc;
-box-shadow:0 0 15px rgba(192,132,252,.4);
+border-color:#a855f7;
+color:#7e22ce;
+box-shadow:0 0 15px rgba(168,85,247,.25);
 }
 
 .step.done{
-color:#86efac;
+color:#16a34a;
 }
 
 .step.done .step-icon{
-border-color:#86efac;
-color:#86efac;
+border-color:#22c55e;
+color:#16a34a;
 }
 
 .code-window{
 overflow:hidden;
 border-radius:18px;
-background:#08040d;
-border:1px solid rgba(255,255,255,.09);
+background:#211436;
+border:1px solid rgba(126,34,206,.18);
+box-shadow:0 12px 35px rgba(76,29,149,.15);
 }
 
 .window{
@@ -689,8 +669,8 @@ display:flex;
 align-items:center;
 gap:7px;
 padding:0 14px;
-border-bottom:1px solid rgba(255,255,255,.07);
-background:rgba(255,255,255,.035);
+background:#2b1944;
+border-bottom:1px solid rgba(255,255,255,.08);
 }
 
 .dot{
@@ -699,14 +679,22 @@ height:10px;
 border-radius:50%;
 }
 
-.red{background:#fb7185}
-.yellow{background:#facc15}
-.green{background:#4ade80}
+.red{
+background:#fb7185;
+}
+
+.yellow{
+background:#facc15;
+}
+
+.green{
+background:#4ade80;
+}
 
 .filename{
 margin-left:8px;
 font-size:12px;
-color:#7e718d;
+color:#c4b5fd;
 }
 
 pre{
@@ -716,8 +704,8 @@ padding:18px;
 overflow:auto;
 white-space:pre-wrap;
 word-break:break-word;
-color:#e9d5ff;
-font:13px/1.7 "JetBrains Mono","Fira Code",Consolas,monospace;
+color:#eadcff;
+font:13px/1.7 Consolas,"Courier New",monospace;
 }
 
 .actions{
@@ -730,18 +718,19 @@ margin-top:14px;
 flex:1;
 padding:11px;
 border-radius:12px;
-border:1px solid rgba(216,180,254,.14);
-background:rgba(255,255,255,.045);
-color:#ddd0eb;
+border:1px solid rgba(126,34,206,.15);
+background:rgba(255,255,255,.55);
+color:#6d28d9;
 cursor:pointer;
 font-size:12px;
+font-weight:600;
 transition:.2s;
 }
 
 .small:hover{
-background:rgba(192,132,252,.12);
-border-color:#a855f7;
-color:white;
+background:#f3e8ff;
+border-color:#c084fc;
+transform:translateY(-1px);
 }
 
 .results{
@@ -757,13 +746,14 @@ gap:14px;
 .stat{
 padding:20px;
 border-radius:18px;
-background:rgba(5,2,10,.35);
-border:1px solid rgba(255,255,255,.07);
+background:rgba(250,245,255,.6);
+border:1px solid rgba(126,34,206,.1);
 }
 
 .number{
 font-size:31px;
 font-weight:800;
+color:#7e22ce;
 }
 
 .stat-label{
@@ -771,15 +761,15 @@ margin-top:4px;
 font-size:10px;
 letter-spacing:1px;
 text-transform:uppercase;
-color:#8f819d;
+color:#9b83b7;
 }
 
 .pass .number{
-color:#86efac;
+color:#16a34a;
 }
 
 .fail .number{
-color:#fb7185;
+color:#dc2626;
 }
 
 .test-list{
@@ -792,15 +782,15 @@ margin-top:16px;
 .test{
 padding:14px;
 border-radius:14px;
-background:rgba(255,255,255,.04);
-border:1px solid rgba(255,255,255,.06);
-color:#c4b5fd;
+background:rgba(255,255,255,.48);
+border:1px solid rgba(126,34,206,.08);
+color:#70568e;
 font-size:13px;
 }
 
 .test:before{
 content:"✓";
-color:#86efac;
+color:#16a34a;
 font-weight:bold;
 margin-right:8px;
 }
@@ -812,7 +802,8 @@ margin-top:22px;
 .output pre{
 height:190px;
 border-radius:16px;
-background:rgba(5,2,10,.5);
+background:#211436;
+color:#eadcff;
 }
 
 .status{
@@ -820,35 +811,40 @@ min-height:22px;
 margin-top:13px;
 text-align:center;
 font-size:13px;
+font-weight:600;
 }
 
 .success{
-color:#86efac;
+color:#16a34a;
 }
 
 .error{
-color:#fb7185;
+color:#dc2626;
 }
 
 .footer{
 margin-top:35px;
 text-align:center;
-color:#70627f;
+color:#9b83b7;
 font-size:12px;
 }
 
 @media(max-width:850px){
+
 .dashboard{
 grid-template-columns:1fr;
 }
-.nav{
-margin-bottom:45px;
+
+.hero{
+padding-top:60px;
 }
+
 }
 
 @media(max-width:600px){
+
 .container{
-padding:15px 12px 40px;
+padding:14px 12px 40px;
 }
 
 .nav{
@@ -857,8 +853,12 @@ padding:0 14px;
 border-radius:17px;
 }
 
+.hero{
+padding:55px 0 45px;
+}
+
 .hero h1{
-font-size:39px;
+font-size:40px;
 letter-spacing:-2px;
 }
 
@@ -867,9 +867,9 @@ font-size:15px;
 }
 
 .orb{
-width:78px;
-height:78px;
-font-size:32px;
+width:80px;
+height:80px;
+font-size:34px;
 border-radius:25px;
 }
 
@@ -878,7 +878,8 @@ padding:19px;
 border-radius:20px;
 }
 
-textarea,pre{
+textarea,
+pre{
 height:220px;
 }
 
@@ -893,7 +894,9 @@ grid-template-columns:1fr;
 .actions{
 flex-direction:column;
 }
+
 }
+
 </style>
 </head>
 
@@ -902,6 +905,7 @@ flex-direction:column;
 <div class="container">
 
 <nav class="nav">
+
 <div class="brand">
 <div class="brand-orb">✦</div>
 <span>AI Coding Agent</span>
@@ -911,12 +915,17 @@ flex-direction:column;
 <span class="online-dot"></span>
 AI Online
 </div>
+
 </nav>
 
 <section class="hero">
+
 <div class="orb">✦</div>
+
 <h1>Build with Intelligence.</h1>
+
 <p>Generate · Debug · Test · Execute with AI</p>
+
 </section>
 
 <div class="dashboard">
@@ -928,12 +937,19 @@ AI Online
 <span class="label">Input</span>
 </div>
 
-<textarea id="task" placeholder="Describe what you want the AI to build...
+<textarea
+id="task"
+placeholder="Describe what you want the AI to build...
 
 Example:
-Create a Python program that checks whether a number is prime."></textarea>
+Create a Python program that checks whether a number is prime."
+></textarea>
 
-<button class="run" id="runButton" onclick="runAgent()">
+<button
+class="run"
+id="runButton"
+onclick="runAgent()"
+>
 ✦ Run AI Agent
 </button>
 
@@ -968,17 +984,25 @@ Executing & testing
 <section class="card">
 
 <div class="title">
+
 <h2>⌘ Generated Code</h2>
+
 <span class="label">Python</span>
+
 </div>
 
 <div class="code-window">
 
 <div class="window">
+
 <span class="dot red"></span>
 <span class="dot yellow"></span>
 <span class="dot green"></span>
-<span class="filename">generated_code.py</span>
+
+<span class="filename">
+generated_code.py
+</span>
+
 </div>
 
 <pre id="code">Your generated Python code will appear here.</pre>
@@ -986,9 +1010,19 @@ Executing & testing
 </div>
 
 <div class="actions">
-<button class="small" onclick="copyCode()">Copy Code</button>
-<button class="small" onclick="downloadCode()">Download .py</button>
-<button class="small" onclick="runAgent()">Run Again</button>
+
+<button class="small" onclick="copyCode()">
+Copy Code
+</button>
+
+<button class="small" onclick="downloadCode()">
+Download .py
+</button>
+
+<button class="small" onclick="runAgent()">
+Run Again
+</button>
+
 </div>
 
 </section>
@@ -998,30 +1032,66 @@ Executing & testing
 <section class="card results">
 
 <div class="title">
+
 <h2>◈ Test & Execution</h2>
+
 <span class="label">Agent Results</span>
+
 </div>
 
 <div class="stats">
 
 <div class="stat">
-<div class="number" id="total">—</div>
-<div class="stat-label">Tests</div>
+
+<div
+class="number"
+id="total"
+>
+—
+</div>
+
+<div class="stat-label">
+Tests
+</div>
+
 </div>
 
 <div class="stat pass">
-<div class="number" id="passed">—</div>
-<div class="stat-label">Passed</div>
+
+<div
+class="number"
+id="passed"
+>
+—
+</div>
+
+<div class="stat-label">
+Passed
+</div>
+
 </div>
 
 <div class="stat fail">
-<div class="number" id="failed">—</div>
-<div class="stat-label">Failed</div>
+
+<div
+class="number"
+id="failed"
+>
+—
+</div>
+
+<div class="stat-label">
+Failed
 </div>
 
 </div>
 
-<div class="test-list" id="testList">
+</div>
+
+<div
+class="test-list"
+id="testList"
+>
 
 <div class="test">
 Test scenarios will appear here
@@ -1032,17 +1102,19 @@ Test scenarios will appear here
 <div class="output">
 
 <div class="title">
+
 <h2>Terminal Output</h2>
-<span class="label">Execution</span>
+
+<span class="label">
+Execution
+</span>
+
 </div>
 
-<pre id="report">Your execution output and test report will appear here.</pre>
+<pre id="report">
+Your execution output and test report will appear here.
+</pre>
 
-</div>
-
-<div class="actions">
-<button class="small" onclick="runAgent()">Run Tests Again</button>
-<button class="small" onclick="runAgent()">Regenerate Code</button>
 </div>
 
 </section>
@@ -1070,18 +1142,16 @@ document.getElementById("step"+i).className="step done";
 }
 
 document.getElementById("step"+number).className="step active";
+
 }
 
 }
 
 function updateStats(report){
 
-const status=report.includes("STATUS")&&report.includes("PASSED");
-
 const failed=report.toLowerCase().includes("execution error")?1:0;
 
 const total=4;
-
 const passed=failed?3:4;
 
 document.getElementById("total").innerText=total;
@@ -1092,19 +1162,16 @@ const list=document.getElementById("testList");
 
 list.innerHTML="";
 
-const names=[
+[
 "Normal Case",
 "Boundary Case",
 "Edge Case",
 "Invalid Input"
-];
-
-names.forEach((name,index)=>{
+].forEach(name=>{
 
 const item=document.createElement("div");
 
 item.className="test";
-
 item.innerText=name;
 
 list.appendChild(item);
@@ -1115,7 +1182,10 @@ list.appendChild(item);
 
 async function runAgent(){
 
-const task=document.getElementById("task").value.trim();
+const task=document
+.getElementById("task")
+.value
+.trim();
 
 const status=document.getElementById("status");
 
@@ -1128,7 +1198,6 @@ const button=document.getElementById("runButton");
 if(!task){
 
 status.innerText="Please enter a coding task.";
-
 status.className="status error";
 
 return;
@@ -1136,15 +1205,12 @@ return;
 }
 
 button.disabled=true;
-
 button.innerText="AI Agent Running...";
 
 status.innerText="AI is working...";
-
 status.className="status";
 
 code.innerText="Generating code...";
-
 report.innerText="Preparing execution...";
 
 setStep(1);
@@ -1180,49 +1246,81 @@ let data;
 
 try{
 data=await response.json();
-}catch{
-throw new Error("Server returned an invalid response.");
+}
+catch{
+throw new Error(
+"Server returned an invalid response."
+);
 }
 
 if(!response.ok){
-throw new Error(data.detail||"Server error");
+
+throw new Error(
+data.detail||"Server error"
+);
+
 }
 
 lastCode=data.code||"";
 
-code.innerText=lastCode||"No code generated.";
+code.innerText=
+lastCode||
+"No code generated.";
 
-report.innerText=data.report||"No report generated.";
+report.innerText=
+data.report||
+"No report generated.";
 
-updateStats(data.report||"");
+updateStats(
+data.report||""
+);
 
 setStep(0);
 
-if((data.report||"").includes("STATUS\\n\\nPASSED")){
-status.innerText="AI Agent completed successfully.";
-status.className="status success";
-}else{
-status.innerText="AI Agent completed with an execution issue.";
-status.className="status error";
+if(
+(data.report||"").includes(
+"STATUS\n\nPASSED"
+)
+){
+
+status.innerText=
+"AI Agent completed successfully.";
+
+status.className=
+"status success";
+
+}
+else{
+
+status.innerText=
+"AI Agent completed with an execution issue.";
+
+status.className=
+"status error";
+
 }
 
-}catch(error){
+}
+catch(error){
 
 setStep(0);
 
-status.innerText=error.message;
+status.innerText=
+error.message;
 
-status.className="status error";
+status.className=
+"status error";
 
 code.innerText="";
-
 report.innerText="";
 
-}finally{
+}
+finally{
 
 button.disabled=false;
 
-button.innerText="✦ Run AI Agent";
+button.innerText=
+"✦ Run AI Agent";
 
 }
 
@@ -1234,13 +1332,20 @@ if(!lastCode){
 return;
 }
 
-navigator.clipboard.writeText(lastCode);
+navigator.clipboard.writeText(
+lastCode
+);
 
-const status=document.getElementById("status");
+const status=
+document.getElementById(
+"status"
+);
 
-status.innerText="Code copied to clipboard.";
+status.innerText=
+"Code copied to clipboard.";
 
-status.className="status success";
+status.className=
+"status success";
 
 }
 
@@ -1252,16 +1357,20 @@ return;
 
 const blob=new Blob(
 [lastCode],
-{type:"text/plain"}
+{
+type:"text/plain"
+}
 );
 
-const url=URL.createObjectURL(blob);
+const url=
+URL.createObjectURL(blob);
 
-const link=document.createElement("a");
+const link=
+document.createElement("a");
 
 link.href=url;
-
-link.download="generated_code.py";
+link.download=
+"generated_code.py";
 
 document.body.appendChild(link);
 
@@ -1313,7 +1422,9 @@ def run_agent(request:TaskRequest):
     try:
 
         initial_state:CrewState={
-            "messages":[HumanMessage(content=task)],
+            "messages":[
+                HumanMessage(content=task)
+            ],
             "code":None,
             "report":None
         }
