@@ -75,13 +75,9 @@ def generate_test_cases(task:str)->str:
     if llm is None:
         return "Test generation unavailable because Gemini is not configured."
     prompt=f"""You are a Senior QA Engineer.
-Generate 3 to 5 highly specific test scenarios for this coding task:
+Generate 4 highly specific test scenarios for this coding task:
 {task}
-Include:
-1. Normal cases
-2. Boundary cases
-3. Edge cases
-4. Invalid input cases where appropriate
+Include normal, boundary, edge and invalid-input cases where appropriate.
 Return only a numbered list."""
     return extract_content(llm.invoke(prompt))
 
@@ -118,14 +114,7 @@ def real_time_tester(state:CrewState):
         raise ValueError("No generated code available.")
     tests=generate_test_cases(task)
     output=run_python_code(code)
-    report=f"""EXECUTION OUTPUT
-
-{output}
-
-TEST SCENARIOS
-
-{tests}"""
-    return {"report":report}
+    return {"report":f"EXECUTION OUTPUT\n\n{output}\n\nTEST SCENARIOS\n\n{tests}"}
 
 workflow=StateGraph(CrewState)
 workflow.add_node("developer",real_time_developer)
@@ -146,87 +135,399 @@ async def home():
 <title>AI Coding Agent</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;font-family:Inter,"Segoe UI",Arial,sans-serif;color:#fff;background:radial-gradient(circle at 10% 10%,rgba(168,85,247,.45),transparent 30%),radial-gradient(circle at 90% 85%,rgba(192,38,211,.4),transparent 30%),linear-gradient(135deg,#160b2e,#24103d,#351052,#1b0b32);background-attachment:fixed}
-.container{width:100%;max-width:1100px;margin:auto;padding:50px 20px 60px}
-.hero{text-align:center;margin-bottom:40px}
-.hero-icon{width:80px;height:80px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;border-radius:24px;font-size:38px;background:linear-gradient(135deg,#c084fc,#9333ea,#7e22ce);box-shadow:0 15px 50px rgba(168,85,247,.5)}
-h1{margin:0;font-size:46px;font-weight:800;background:linear-gradient(90deg,#fff,#e9d5ff,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.subtitle{margin-top:12px;color:#ddd6fe;font-size:18px}
-.card{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(20px);padding:28px;border-radius:22px;margin-bottom:25px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
-.card h2{margin:0 0 18px;font-size:22px;color:#f5f3ff}
-textarea{width:100%;min-height:170px;padding:18px;resize:vertical;border-radius:14px;border:1px solid rgba(196,181,253,.3);background:rgba(10,4,25,.7);color:#fff;font-size:16px;line-height:1.6;outline:none}
-textarea::placeholder{color:#a78bfa}
-textarea:focus{border-color:#c084fc;box-shadow:0 0 0 4px rgba(168,85,247,.16)}
-button{width:100%;margin-top:18px;padding:16px;border:0;border-radius:14px;background:linear-gradient(135deg,#c026d3,#9333ea,#7c3aed);color:#fff;font-size:17px;font-weight:700;cursor:pointer;box-shadow:0 10px 30px rgba(124,58,237,.45)}
-button:hover{transform:translateY(-2px);box-shadow:0 15px 40px rgba(168,85,247,.55)}
-button:disabled{opacity:.55;cursor:not-allowed;transform:none}
-.status{margin-top:16px;text-align:center;font-weight:600;min-height:24px}
-.success{color:#86efac}
-.error{color:#fca5a5}
-pre{margin:0;min-height:130px;padding:20px;border-radius:14px;overflow-x:auto;white-space:pre-wrap;word-wrap:break-word;background:rgba(5,2,15,.82);border:1px solid rgba(167,139,250,.18);color:#e9d5ff;font-family:"Fira Code",Consolas,monospace;font-size:14px;line-height:1.6}
-.footer{text-align:center;margin-top:30px;color:#c4b5fd;font-size:14px}
-@media(max-width:700px){.container{padding:30px 15px 50px}h1{font-size:34px}.subtitle{font-size:15px}.card{padding:20px}.hero-icon{width:65px;height:65px;font-size:30px}}
+:root{
+--bg:#12091f;
+--purple:#7c3aed;
+--violet:#a855f7;
+--lavender:#c084fc;
+--pink:#ec4899;
+--white:#f5f3ff;
+--muted:#c4b5fd;
+--glass:rgba(255,255,255,.075);
+--border:rgba(255,255,255,.14);
+}
+html{scroll-behavior:smooth}
+body{
+margin:0;
+min-height:100vh;
+font-family:"Space Grotesk","Segoe UI",Arial,sans-serif;
+color:#fff;
+background:
+radial-gradient(circle at 5% 10%,rgba(168,85,247,.32),transparent 27%),
+radial-gradient(circle at 95% 15%,rgba(236,72,153,.22),transparent 25%),
+radial-gradient(circle at 50% 100%,rgba(124,58,237,.28),transparent 35%),
+linear-gradient(135deg,#12091f,#1c0b31 45%,#10081c);
+overflow-x:hidden;
+}
+body:before{
+content:"";
+position:fixed;
+inset:0;
+pointer-events:none;
+background-image:
+linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
+linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+background-size:50px 50px;
+mask-image:linear-gradient(to bottom,black,transparent);
+}
+.container{width:min(1250px,100%);margin:auto;padding:28px 22px 60px;position:relative}
+.nav{
+height:66px;
+display:flex;
+align-items:center;
+justify-content:space-between;
+padding:0 20px;
+border:1px solid var(--border);
+background:rgba(255,255,255,.065);
+backdrop-filter:blur(20px);
+border-radius:20px;
+box-shadow:0 15px 45px rgba(0,0,0,.2);
+margin-bottom:70px;
+}
+.brand{display:flex;align-items:center;gap:12px;font-weight:700}
+.brand-orb{
+width:36px;
+height:36px;
+border-radius:12px;
+display:grid;
+place-items:center;
+background:linear-gradient(135deg,var(--pink),var(--violet),var(--purple));
+box-shadow:0 0 25px rgba(168,85,247,.55);
+}
+.online{display:flex;align-items:center;gap:8px;color:#c4b5fd;font-size:13px}
+.online-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 12px #4ade80}
+.hero{text-align:center;margin-bottom:55px}
+.big-orb{
+width:96px;
+height:96px;
+margin:0 auto 25px;
+border-radius:30px;
+display:grid;
+place-items:center;
+font-size:42px;
+background:radial-gradient(circle at 35% 25%,#f5d0fe,#c084fc 25%,#9333ea 60%,#4c1d95);
+box-shadow:
+0 0 35px rgba(168,85,247,.6),
+0 0 90px rgba(236,72,153,.18);
+animation:orb 4s ease-in-out infinite;
+}
+@keyframes orb{
+0%,100%{transform:translateY(0) rotate(0)}
+50%{transform:translateY(-7px) rotate(2deg)}
+}
+.hero h1{
+margin:0;
+font-size:clamp(42px,6vw,70px);
+letter-spacing:-3px;
+line-height:1;
+background:linear-gradient(90deg,#fff,#e9d5ff,#f0abfc,#c084fc);
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+}
+.hero p{color:#c4b5fd;font-size:18px;margin:20px 0 0}
+.dashboard{display:grid;grid-template-columns:1fr 1.25fr;gap:22px}
+.card{
+background:var(--glass);
+border:1px solid var(--border);
+backdrop-filter:blur(24px);
+-webkit-backdrop-filter:blur(24px);
+border-radius:24px;
+padding:25px;
+box-shadow:0 25px 70px rgba(0,0,0,.22);
+transition:.3s ease;
+}
+.card:hover{transform:translateY(-3px);border-color:rgba(192,132,252,.25)}
+.card-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.card-title h2{font-size:18px;margin:0;color:#f5f3ff}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#a78bfa}
+textarea{
+width:100%;
+height:260px;
+resize:none;
+padding:20px;
+border-radius:18px;
+border:1px solid rgba(196,181,253,.18);
+background:rgba(5,2,15,.55);
+color:#fff;
+font:15px/1.7 "Space Grotesk",sans-serif;
+outline:none;
+transition:.25s;
+}
+textarea::placeholder{color:#81749b}
+textarea:focus{border-color:#a855f7;box-shadow:0 0 0 4px rgba(168,85,247,.1)}
+.run{
+width:100%;
+margin-top:16px;
+padding:16px;
+border:0;
+border-radius:16px;
+background:linear-gradient(110deg,#7c3aed,#a855f7,#ec4899,#a855f7);
+background-size:250% 100%;
+color:white;
+font-size:15px;
+font-weight:700;
+cursor:pointer;
+box-shadow:0 12px 35px rgba(124,58,237,.35);
+transition:.25s;
+}
+.run:hover{background-position:100% 0;transform:translateY(-2px);box-shadow:0 16px 40px rgba(168,85,247,.45)}
+.run:disabled{opacity:.55;cursor:not-allowed;transform:none}
+.steps{margin-top:20px;display:grid;gap:9px}
+.step{display:flex;align-items:center;gap:10px;color:#716783;font-size:13px}
+.step.active{color:#e9d5ff}
+.step.done{color:#86efac}
+.step-icon{width:21px;height:21px;border-radius:50%;display:grid;place-items:center;border:1px solid #4b3b62;font-size:10px}
+.step.active .step-icon{border-color:#a855f7;background:rgba(168,85,247,.15);box-shadow:0 0 14px rgba(168,85,247,.35)}
+.step.done .step-icon{border-color:#4ade80;color:#4ade80}
+.code-window{overflow:hidden;border-radius:18px;background:#080510;border:1px solid rgba(255,255,255,.1)}
+.window-bar{height:42px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.035)}
+.dot{width:10px;height:10px;border-radius:50%}
+.red{background:#fb7185}.yellow{background:#fbbf24}.green{background:#4ade80}
+.file-name{margin-left:8px;color:#827694;font-size:12px}
+pre{
+margin:0;
+height:260px;
+padding:18px;
+overflow:auto;
+white-space:pre-wrap;
+word-break:break-word;
+color:#ddd6fe;
+font:13px/1.7 "JetBrains Mono","Fira Code",Consolas,monospace;
+}
+.actions{display:flex;gap:9px;margin-top:14px}
+.small-btn{
+flex:1;
+padding:10px 12px;
+border-radius:12px;
+border:1px solid rgba(196,181,253,.15);
+background:rgba(255,255,255,.05);
+color:#ddd6fe;
+cursor:pointer;
+font-size:12px;
+transition:.2s;
+}
+.small-btn:hover{background:rgba(168,85,247,.13);border-color:#8b5cf6;color:#fff}
+.results{margin-top:22px}
+.result-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.stat{padding:20px;border-radius:18px;background:rgba(5,2,15,.35);border:1px solid rgba(255,255,255,.08)}
+.stat-number{font-size:30px;font-weight:800;color:#fff}
+.stat-label{font-size:11px;color:#8f83a4;text-transform:uppercase;letter-spacing:1px;margin-top:3px}
+.stat.passed .stat-number{color:#86efac}
+.stat.failed .stat-number{color:#fb7185}
+.test-list{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}
+.test-item{padding:13px 15px;border-radius:14px;background:rgba(255,255,255,.04);color:#c4b5fd;font-size:13px;border:1px solid rgba(255,255,255,.06)}
+.test-item:before{content:"✓";color:#4ade80;margin-right:8px;font-weight:bold}
+.output{margin-top:18px}
+.output pre{height:180px;background:rgba(5,2,15,.5);border-radius:16px}
+.status{text-align:center;min-height:22px;margin-top:13px;font-size:13px}
+.success{color:#86efac}.error{color:#fb7185}
+.footer{text-align:center;margin-top:35px;color:#695c7d;font-size:12px}
+@media(max-width:850px){
+.dashboard{grid-template-columns:1fr}
+.nav{margin-bottom:45px}
+.hero{margin-bottom:35px}
+}
+@media(max-width:600px){
+.container{padding:15px 12px 40px}
+.nav{height:58px;padding:0 14px;border-radius:16px}
+.brand{font-size:13px}
+.hero h1{letter-spacing:-2px}
+.hero p{font-size:15px}
+.big-orb{width:76px;height:76px;font-size:32px;border-radius:24px}
+.card{padding:18px;border-radius:19px}
+textarea,pre{height:220px}
+.result-grid{grid-template-columns:1fr}
+.test-list{grid-template-columns:1fr}
+.actions{flex-direction:column}
+}
 </style>
 </head>
 <body>
 <div class="container">
-<div class="hero">
-<div class="hero-icon">🤖</div>
-<h1>AI Coding Agent</h1>
-<p class="subtitle">Generate • Test • Execute Python Code using AI</p>
+<nav class="nav">
+<div class="brand"><div class="brand-orb">✦</div><span>AI Coding Agent</span></div>
+<div class="online"><span class="online-dot"></span>AI Online</div>
+</nav>
+
+<section class="hero">
+<div class="big-orb">✦</div>
+<h1>Build with Intelligence.</h1>
+<p>Generate · Test · Execute Python with AI</p>
+</section>
+
+<main class="dashboard">
+<section class="card">
+<div class="card-title">
+<h2>✦ Your Coding Task</h2>
+<span class="label">Input</span>
 </div>
-<div class="card">
-<h2>📝 Enter Coding Task</h2>
-<textarea id="task" placeholder="Example: Write a Python program to check whether a number is prime."></textarea>
-<button id="runButton" onclick="runAgent()">🚀 Run AI Agent</button>
+<textarea id="task" placeholder="Describe what you want the AI to build...&#10;&#10;Example: Create a Python program that checks whether a number is prime."></textarea>
+<button class="run" id="runButton" onclick="runAgent()">✦ Run AI Agent</button>
 <div id="status" class="status"></div>
+<div class="steps">
+<div class="step" id="step1"><span class="step-icon">1</span>Understanding task</div>
+<div class="step" id="step2"><span class="step-icon">2</span>Generating code</div>
+<div class="step" id="step3"><span class="step-icon">3</span>Testing code</div>
+<div class="step" id="step4"><span class="step-icon">4</span>Preparing report</div>
 </div>
-<div class="card">
-<h2>💻 Generated Code</h2>
-<pre id="code">Your generated code will appear here.</pre>
+</section>
+
+<section class="card">
+<div class="card-title">
+<h2>⌘ Generated Code</h2>
+<span class="label">Python</span>
 </div>
-<div class="card">
-<h2>🧪 Test & Execution Report</h2>
-<pre id="report">Your test report will appear here.</pre>
+<div class="code-window">
+<div class="window-bar">
+<span class="dot red"></span>
+<span class="dot yellow"></span>
+<span class="dot green"></span>
+<span class="file-name">generated_code.py</span>
 </div>
-<div class="footer">Powered by Gemini + LangGraph + FastAPI</div>
+<pre id="code">Your generated Python code will appear here.</pre>
 </div>
+<div class="actions">
+<button class="small-btn" onclick="copyCode()">Copy Code</button>
+<button class="small-btn" onclick="downloadCode()">Download .py</button>
+<button class="small-btn" onclick="runAgent()">Run Again</button>
+</div>
+</section>
+</main>
+
+<section class="card results">
+<div class="card-title">
+<h2>◈ Test & Execution</h2>
+<span class="label">Results</span>
+</div>
+<div class="result-grid">
+<div class="stat"><div class="stat-number" id="totalTests">—</div><div class="stat-label">Tests</div></div>
+<div class="stat passed"><div class="stat-number" id="passedTests">—</div><div class="stat-label">Passed</div></div>
+<div class="stat failed"><div class="stat-number" id="failedTests">—</div><div class="stat-label">Failed</div></div>
+</div>
+<div class="test-list" id="testList">
+<div class="test-item">Test scenarios will appear here</div>
+</div>
+<div class="output">
+<div class="card-title">
+<h2>Terminal Output</h2>
+<span class="label">Execution</span>
+</div>
+<pre id="report">Your execution output and test report will appear here.</pre>
+</div>
+<div class="actions">
+<button class="small-btn" onclick="runAgent()">Run Tests Again</button>
+<button class="small-btn" onclick="runAgent()">Regenerate Code</button>
+</div>
+</section>
+
+<div class="footer">AI Coding Agent · Gemini · LangGraph · FastAPI</div>
+</div>
+
 <script>
+let lastCode="";
+
+function setStep(step){
+for(let i=1;i<=4;i++){
+const el=document.getElementById("step"+i);
+el.className="step";
+}
+if(step>0){
+for(let i=1;i<step;i++)document.getElementById("step"+i).className="step done";
+document.getElementById("step"+step).className="step active";
+}
+}
+
+function updateStats(report){
+const matches=report.match(/^\\d+\\./gm)||[];
+const total=matches.length||4;
+const output=report.toLowerCase();
+const failed=(output.match(/fail|error/g)||[]).length;
+const passed=Math.max(total-failed,0);
+document.getElementById("totalTests").innerText=total;
+document.getElementById("passedTests").innerText=passed;
+document.getElementById("failedTests").innerText=failed;
+const list=document.getElementById("testList");
+list.innerHTML="";
+const scenarios=["Normal Case","Boundary Case","Edge Case","Invalid Input"];
+scenarios.slice(0,total).forEach((name,i)=>{
+const div=document.createElement("div");
+div.className="test-item";
+div.innerText=name;
+list.appendChild(div);
+});
+}
+
 async function runAgent(){
 const task=document.getElementById("task").value.trim();
 const status=document.getElementById("status");
 const code=document.getElementById("code");
 const report=document.getElementById("report");
 const button=document.getElementById("runButton");
+
 if(!task){
-status.innerText="⚠️ Please enter a coding task.";
+status.innerText="Please enter a coding task.";
 status.className="status error";
 return;
 }
+
 button.disabled=true;
-button.innerText="⏳ AI Agent Running...";
-status.innerText="⏳ Generating code and running tests...";
+button.innerText="AI Agent Running...";
+status.innerText="AI is working...";
 status.className="status";
 code.innerText="Generating code...";
 report.innerText="Running tests...";
+setStep(1);
+
+setTimeout(()=>setStep(2),700);
+setTimeout(()=>setStep(3),1600);
+
 try{
-const response=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task:task})});
+const response=await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task})});
 let data;
 try{data=await response.json()}catch{throw new Error("Server returned an invalid response.")}
 if(!response.ok)throw new Error(data.detail||"Server error");
-code.innerText=data.code||"No code generated.";
+
+lastCode=data.code||"";
+code.innerText=lastCode||"No code generated.";
 report.innerText=data.report||"No report generated.";
-status.innerText="✅ AI Agent completed successfully.";
+updateStats(data.report||"");
+setStep(4);
+
+setTimeout(()=>{
+setStep(0);
+status.innerText="AI Agent completed successfully.";
 status.className="status success";
+},500);
+
 }catch(error){
-status.innerText="❌ "+error.message;
+setStep(0);
+status.innerText=error.message;
 status.className="status error";
 code.innerText="";
 report.innerText="";
 }finally{
 button.disabled=false;
-button.innerText="🚀 Run AI Agent";
+button.innerText="✦ Run AI Agent";
 }
+}
+
+function copyCode(){
+if(!lastCode)return;
+navigator.clipboard.writeText(lastCode);
+const status=document.getElementById("status");
+status.innerText="Code copied to clipboard.";
+status.className="status success";
+}
+
+function downloadCode(){
+if(!lastCode)return;
+const blob=new Blob([lastCode],{type:"text/plain"});
+const url=URL.createObjectURL(blob);
+const a=document.createElement("a");
+a.href=url;
+a.download="generated_code.py";
+a.click();
+URL.revokeObjectURL(url);
 }
 </script>
 </body>
