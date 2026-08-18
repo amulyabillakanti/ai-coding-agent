@@ -1,3 +1,4 @@
+````python
 import io
 import os
 import sys
@@ -19,7 +20,7 @@ from pydantic import BaseModel
 app = FastAPI(
     title="Lavender AI Coding Agent",
     description="AI-powered coding, testing and execution pipeline",
-    version="2.0.0",
+    version="3.0.0",
 )
 
 
@@ -29,10 +30,30 @@ app = FastAPI(
 
 api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
+# Gemini 3.6 Flash is the current stable model recommended
+# by Google for coding and agentic workflows.
+DEFAULT_MODEL = "gemini-3.6-flash"
+
 MODEL_NAME = os.getenv(
     "GEMINI_MODEL",
-    "gemini-2.5-flash"
-)
+    DEFAULT_MODEL
+).strip()
+
+# Automatically migrate the old model if it is still present
+# in Render Environment Variables.
+OLD_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-preview-09-2025",
+    "gemini-2.5-flash-preview-05-20",
+}
+
+if MODEL_NAME in OLD_MODELS:
+    print(
+        f"[Gemini] Replacing deprecated model "
+        f"{MODEL_NAME} with {DEFAULT_MODEL}"
+    )
+    MODEL_NAME = DEFAULT_MODEL
+
 
 llm = None
 
@@ -42,11 +63,22 @@ if api_key:
             model=MODEL_NAME,
             google_api_key=api_key,
         )
+
+        print(
+            f"[Gemini] Initialized successfully with model: "
+            f"{MODEL_NAME}"
+        )
+
     except Exception as exc:
-        print(f"Gemini initialization error: {exc}")
+        print(
+            f"[Gemini] Initialization error: {exc}"
+        )
         llm = None
+
 else:
-    print("WARNING: GEMINI_API_KEY is not configured.")
+    print(
+        "[Gemini] WARNING: GEMINI_API_KEY is not configured."
+    )
 
 
 # ============================================================
@@ -72,7 +104,11 @@ class TaskRequest(BaseModel):
 # ============================================================
 
 def extract_content(response) -> str:
-    content = getattr(response, "content", response)
+    content = getattr(
+        response,
+        "content",
+        response
+    )
 
     if isinstance(content, str):
         return content
@@ -83,11 +119,17 @@ def extract_content(response) -> str:
         for item in content:
             if isinstance(item, dict):
                 if "text" in item:
-                    parts.append(str(item["text"]))
+                    parts.append(
+                        str(item["text"])
+                    )
                 else:
-                    parts.append(str(item))
+                    parts.append(
+                        str(item)
+                    )
             else:
-                parts.append(str(item))
+                parts.append(
+                    str(item)
+                )
 
         return "\n".join(parts)
 
@@ -120,8 +162,9 @@ def run_python_code(code: str) -> str:
     """
     WARNING:
     This uses exec() and is NOT a secure sandbox.
-    Do not expose arbitrary code execution publicly
-    without adding proper isolation.
+
+    Do not expose arbitrary code execution publicly without
+    adding proper isolation/containerization.
     """
 
     if not isinstance(code, str):
@@ -135,6 +178,7 @@ def run_python_code(code: str) -> str:
     sys.stdout = new_stdout
 
     try:
+
         local_scope = {}
 
         exec(
@@ -148,12 +192,14 @@ def run_python_code(code: str) -> str:
         result = new_stdout.getvalue()
 
     except Exception:
+
         result = (
             "Execution Error:\n"
             + traceback.format_exc()
         )
 
     finally:
+
         sys.stdout = old_stdout
 
     result = result.strip()
@@ -161,19 +207,21 @@ def run_python_code(code: str) -> str:
     if result:
         return result
 
-    return "Success (no terminal output)"
+    return "Success — no terminal output."
 
 
 # ============================================================
 # 7. GENERATE TEST CASES
 # ============================================================
 
-def generate_test_cases(task_description: str) -> str:
+def generate_test_cases(
+    task_description: str
+) -> str:
 
     if llm is None:
         return (
-            "Test generation unavailable because Gemini "
-            "is not configured."
+            "Test generation unavailable because "
+            "Gemini is not configured."
         )
 
     prompt = f"""
@@ -192,7 +240,9 @@ Include:
 4. Invalid input cases where appropriate
 
 Return only a numbered list.
+
 Do not write Python code.
+
 Do not add explanations outside the numbered list.
 """
 
@@ -205,9 +255,13 @@ Do not add explanations outside the numbered list.
 # 8. DEVELOPER NODE
 # ============================================================
 
-def real_time_developer(state: CrewState):
+def real_time_developer(
+    state: CrewState
+):
 
-    print("[Developer] Generating Python code...")
+    print(
+        "[Developer] Generating Python code..."
+    )
 
     if llm is None:
         raise ValueError(
@@ -215,10 +269,15 @@ def real_time_developer(state: CrewState):
             "Set GEMINI_API_KEY in Render Environment Variables."
         )
 
-    messages = state.get("messages", [])
+    messages = state.get(
+        "messages",
+        []
+    )
 
     if not messages:
-        raise ValueError("No coding task was provided.")
+        raise ValueError(
+            "No coding task was provided."
+        )
 
     task = messages[-1].content
 
@@ -244,7 +303,9 @@ Requirements:
 - Avoid interactive input unless specifically requested.
 """
 
-    response = llm.invoke(developer_prompt)
+    response = llm.invoke(
+        developer_prompt
+    )
 
     code_str = clean_python_code(
         extract_content(response)
@@ -255,7 +316,9 @@ Requirements:
             "Gemini returned empty Python code."
         )
 
-    print("\nGenerated Code:")
+    print(
+        "\n[Developer] Generated Code:"
+    )
     print(code_str)
 
     return {
@@ -267,13 +330,19 @@ Requirements:
 # 9. TESTER NODE
 # ============================================================
 
-def real_time_tester(state: CrewState):
+def real_time_tester(
+    state: CrewState
+):
 
     print(
-        "[Tester] Generating tests and executing code..."
+        "[Tester] Generating tests "
+        "and executing code..."
     )
 
-    messages = state.get("messages", [])
+    messages = state.get(
+        "messages",
+        []
+    )
 
     if not messages:
         raise ValueError(
@@ -282,27 +351,37 @@ def real_time_tester(state: CrewState):
 
     task = messages[-1].content
 
-    generated_code = state.get("code", "")
+    generated_code = state.get(
+        "code",
+        ""
+    )
 
     if not generated_code:
         raise ValueError(
             "No generated code available for testing."
         )
 
-    test_cases = generate_test_cases(task)
+    test_cases = generate_test_cases(
+        task
+    )
 
     execution_result = run_python_code(
         generated_code
     )
 
     report = (
-        "### EXECUTION OUTPUT\n\n"
-        f"{execution_result}\n\n"
-        "### TEST SCENARIOS\n\n"
+        "EXECUTION OUTPUT\n"
+        "\n"
+        f"{execution_result}\n"
+        "\n"
+        "TEST SCENARIOS\n"
+        "\n"
         f"{test_cases}"
     )
 
-    print("\nTest Report:")
+    print(
+        "\n[Tester] Test Report:"
+    )
     print(report)
 
     return {
@@ -314,7 +393,9 @@ def real_time_tester(state: CrewState):
 # 10. LANGGRAPH WORKFLOW
 # ============================================================
 
-workflow = StateGraph(CrewState)
+workflow = StateGraph(
+    CrewState
+)
 
 workflow.add_node(
     "developer",
@@ -348,7 +429,10 @@ rt_app = workflow.compile()
 # 11. LAVENDER FRONTEND
 # ============================================================
 
-@app.get("/", response_class=HTMLResponse)
+@app.get(
+    "/",
+    response_class=HTMLResponse
+)
 async def home():
 
     return """
@@ -365,7 +449,12 @@ async def home():
     content="width=device-width, initial-scale=1.0"
 >
 
-<title>Lavender AI Coding Agent 💜</title>
+<title>Lavender AI Coding Agent ✦</title>
+
+
+<!-- ======================================================
+     AESTHETIC GOOGLE FONTS
+     ====================================================== -->
 
 <link
     rel="preconnect"
@@ -379,12 +468,46 @@ async def home():
 >
 
 <link
-    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Pacifico&display=swap"
+    href="https://fonts.googleapis.com/css2?family=
+    Cormorant+Garamond:wght@500;600;700&
+    family=Dancing+Script:wght@500;600;700&
+    family=DM+Sans:wght@400;500;600;700&
+    display=swap"
     rel="stylesheet"
 >
 
 
 <style>
+
+/* =========================================================
+   ROOT
+   ========================================================= */
+
+:root {
+
+    --lavender-50: #fbf9ff;
+    --lavender-100: #f6f0ff;
+    --lavender-200: #eee4ff;
+    --lavender-300: #dfceff;
+    --lavender-400: #c8aaff;
+    --lavender-500: #a979ff;
+    --lavender-600: #8f5bea;
+    --lavender-700: #7544c7;
+
+    --ink: #40334f;
+    --muted: #81738f;
+
+    --white: rgba(255, 255, 255, 0.78);
+
+    --shadow:
+        0 25px 70px
+        rgba(112, 76, 154, 0.12);
+
+    --soft-shadow:
+        0 12px 35px
+        rgba(112, 76, 154, 0.10);
+}
+
 
 /* =========================================================
    RESET
@@ -399,38 +522,42 @@ html {
 }
 
 body {
+
     margin: 0;
 
     min-height: 100vh;
 
-    font-family: "DM Sans", sans-serif;
+    font-family:
+        "DM Sans",
+        sans-serif;
 
-    color: #3f3154;
+    color: var(--ink);
 
     background:
+
         radial-gradient(
-            circle at 5% 5%,
-            rgba(221, 195, 255, 0.85),
-            transparent 30%
+            circle at 10% 0%,
+            rgba(217, 194, 255, 0.65),
+            transparent 28%
         ),
 
         radial-gradient(
-            circle at 95% 10%,
-            rgba(196, 181, 253, 0.75),
-            transparent 30%
+            circle at 92% 8%,
+            rgba(226, 209, 255, 0.75),
+            transparent 28%
         ),
 
         radial-gradient(
             circle at 50% 100%,
-            rgba(233, 213, 255, 0.9),
+            rgba(235, 221, 255, 0.9),
             transparent 35%
         ),
 
         linear-gradient(
             135deg,
-            #faf5ff,
-            #eee1ff 45%,
-            #e5d5ff
+            #fcf9ff 0%,
+            #f5edff 48%,
+            #eee4ff 100%
         );
 
     background-attachment: fixed;
@@ -440,53 +567,123 @@ body {
 
 
 /* =========================================================
-   DECORATIONS
+   BACKGROUND BLOBS
+   ========================================================= */
+
+.blob {
+
+    position: fixed;
+
+    border-radius: 50%;
+
+    pointer-events: none;
+
+    filter: blur(2px);
+
+    opacity: 0.45;
+
+    z-index: 0;
+}
+
+.blob-one {
+
+    width: 230px;
+    height: 230px;
+
+    top: 8%;
+    left: -80px;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(196, 167, 255, 0.45),
+            transparent 70%
+        );
+}
+
+.blob-two {
+
+    width: 280px;
+    height: 280px;
+
+    right: -110px;
+    top: 42%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(213, 191, 255, 0.48),
+            transparent 70%
+        );
+}
+
+.blob-three {
+
+    width: 260px;
+    height: 260px;
+
+    bottom: -120px;
+    left: 35%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(229, 208, 255, 0.6),
+            transparent 70%
+        );
+}
+
+
+/* =========================================================
+   DECORATIVE STARS
    ========================================================= */
 
 .decor {
+
     position: fixed;
 
     pointer-events: none;
 
+    user-select: none;
+
+    color:
+        rgba(139, 92, 246, 0.25);
+
     z-index: 0;
 
-    user-select: none;
-}
-
-.decor.one {
-    top: 8%;
-    left: 4%;
-
-    color: rgba(139, 92, 246, 0.28);
-
-    font-size: 42px;
-
     animation:
-        floatOne 5s ease-in-out infinite;
+        gentleFloat
+        6s
+        ease-in-out
+        infinite;
 }
 
-.decor.two {
-    top: 30%;
-    right: 5%;
+.decor-one {
 
-    color: rgba(124, 58, 237, 0.25);
+    top: 11%;
+    left: 5%;
 
     font-size: 34px;
-
-    animation:
-        floatTwo 6s ease-in-out infinite;
 }
 
-.decor.three {
+.decor-two {
+
+    top: 34%;
+    right: 5%;
+
+    font-size: 30px;
+
+    animation-delay: 1.5s;
+}
+
+.decor-three {
+
     bottom: 10%;
     left: 7%;
 
-    color: rgba(168, 85, 247, 0.25);
+    font-size: 28px;
 
-    font-size: 32px;
-
-    animation:
-        floatOne 7s ease-in-out infinite;
+    animation-delay: 3s;
 }
 
 
@@ -495,15 +692,21 @@ body {
    ========================================================= */
 
 .container {
+
     position: relative;
 
     z-index: 1;
 
-    width: min(1050px, 92%);
+    width:
+        min(
+            1080px,
+            92%
+        );
 
-    margin: auto;
+    margin: 0 auto;
 
-    padding: 55px 0 70px;
+    padding:
+        55px 0 70px;
 }
 
 
@@ -512,103 +715,162 @@ body {
    ========================================================= */
 
 .hero {
+
     text-align: center;
 
     margin-bottom: 42px;
 }
 
 .logo {
-    width: 90px;
-    height: 90px;
 
-    margin: 0 auto 20px;
+    width: 94px;
+    height: 94px;
+
+    margin:
+        0 auto 20px;
 
     display: flex;
 
     align-items: center;
     justify-content: center;
 
-    border-radius: 30px;
+    border-radius: 32px;
 
     background:
+
         linear-gradient(
-            135deg,
-            #a78bfa,
-            #c084fc
+            145deg,
+            #c7a7ff,
+            #a979ff
         );
 
-    box-shadow:
-        0 20px 45px
-        rgba(124, 58, 237, 0.25);
+    border:
+        1px solid
+        rgba(255,255,255,0.85);
 
-    font-size: 45px;
+    box-shadow:
+
+        0 20px 45px
+        rgba(125, 79, 211, 0.20),
+
+        inset 0 1px 0
+        rgba(255,255,255,0.75);
+
+    font-size: 46px;
+
+    transform: rotate(-3deg);
 
     animation:
-        logoFloat 4s ease-in-out infinite;
-
-    transform: rotate(-4deg);
+        logoFloat
+        4s
+        ease-in-out
+        infinite;
 }
 
 .logo:hover {
+
     transform:
-        rotate(4deg)
-        scale(1.08);
+        rotate(3deg)
+        scale(1.05);
 }
 
+
 h1 {
+
     margin: 0;
 
-    font-size: clamp(42px, 7vw, 68px);
+    color:
+        #4d3960;
+
+    font-family:
+        "Cormorant Garamond",
+        serif;
+
+    font-size:
+        clamp(
+            52px,
+            8vw,
+            78px
+        );
+
+    line-height: 0.95;
 
     font-weight: 700;
 
-    letter-spacing: -2px;
-
-    color: #51347a;
+    letter-spacing: -1px;
 }
 
 .brand-script {
-    font-family: "Pacifico", cursive;
 
-    color: #8b5cf6;
+    font-family:
+        "Dancing Script",
+        cursive;
 
-    font-size: 0.72em;
+    color:
+        var(--lavender-600);
+
+    font-size: 0.78em;
+
+    margin-right: 7px;
 }
 
 .subtitle {
-    margin: 13px 0 0;
 
-    color: #78628f;
+    margin:
+        18px 0 0;
 
-    font-size: 18px;
+    color:
+        #7d6d8b;
+
+    font-size: 17px;
 
     font-weight: 500;
+
+    letter-spacing: 0.1px;
 }
 
 .tagline {
-    display: inline-block;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 7px;
 
     margin-top: 20px;
 
-    padding: 9px 18px;
+    padding:
+        10px 18px;
 
     border-radius: 999px;
 
     background:
-        rgba(255, 255, 255, 0.68);
+        rgba(
+            255,
+            255,
+            255,
+            0.68
+        );
 
     border:
-        1px solid rgba(255,255,255,0.95);
+        1px solid
+        rgba(
+            255,
+            255,
+            255,
+            0.95
+        );
 
-    color: #7953a6;
+    color:
+        #80639f;
 
-    font-size: 14px;
+    font-size: 13px;
 
     box-shadow:
-        0 8px 25px
-        rgba(110, 70, 150, 0.10);
+        var(--soft-shadow);
 
-    backdrop-filter: blur(10px);
+    backdrop-filter:
+        blur(15px);
 }
 
 
@@ -617,25 +879,38 @@ h1 {
    ========================================================= */
 
 .card {
-    margin-bottom: 26px;
+
+    margin-bottom: 25px;
 
     padding: 30px;
 
     border-radius: 30px;
 
     background:
-        rgba(255,255,255,0.68);
+        rgba(
+            255,
+            255,
+            255,
+            0.68
+        );
 
     border:
-        1px solid rgba(255,255,255,0.95);
+        1px solid
+        rgba(
+            255,
+            255,
+            255,
+            0.95
+        );
 
     box-shadow:
-        0 25px 60px
-        rgba(91, 58, 125, 0.12);
+        var(--shadow);
 
-    backdrop-filter: blur(18px);
+    backdrop-filter:
+        blur(22px);
 
-    -webkit-backdrop-filter: blur(18px);
+    -webkit-backdrop-filter:
+        blur(22px);
 
     transition:
         transform 0.3s ease,
@@ -643,54 +918,91 @@ h1 {
 }
 
 .card:hover {
-    transform: translateY(-3px);
+
+    transform:
+        translateY(-3px);
 
     box-shadow:
-        0 30px 70px
-        rgba(91, 58, 125, 0.17);
+        0 30px 80px
+        rgba(
+            112,
+            76,
+            154,
+            0.16
+        );
 }
 
+
+/* =========================================================
+   CARD HEADER
+   ========================================================= */
+
 .card-header {
+
     display: flex;
 
     align-items: center;
 
-    gap: 13px;
+    gap: 14px;
 
     margin-bottom: 19px;
 }
 
 .card-icon {
-    width: 46px;
-    height: 46px;
+
+    width: 48px;
+    height: 48px;
 
     display: flex;
 
     align-items: center;
     justify-content: center;
 
-    border-radius: 15px;
+    flex-shrink: 0;
+
+    border-radius: 16px;
 
     background:
+
         linear-gradient(
-            135deg,
-            #e9ddff,
-            #f1e7ff
+            145deg,
+            #eee3ff,
+            #f8f3ff
         );
 
-    font-size: 23px;
+    border:
+        1px solid
+        rgba(
+            176,
+            141,
+            233,
+            0.18
+        );
 
     box-shadow:
-        0 7px 20px
-        rgba(110, 70, 150, 0.10);
+        0 8px 22px
+        rgba(
+            113,
+            73,
+            156,
+            0.09
+        );
+
+    font-size: 22px;
 }
 
 h2 {
+
     margin: 0;
 
-    color: #563579;
+    color:
+        #57416c;
 
-    font-size: 22px;
+    font-family:
+        "Cormorant Garamond",
+        serif;
+
+    font-size: 28px;
 
     font-weight: 700;
 }
@@ -701,31 +1013,41 @@ h2 {
    ========================================================= */
 
 textarea {
+
     width: 100%;
 
-    min-height: 180px;
+    min-height: 185px;
 
-    padding: 20px;
+    padding: 21px;
 
-    border-radius: 21px;
+    border-radius: 22px;
 
     border:
-        2px solid #d8c3f5;
+        2px solid
+        #e1d3f4;
 
     outline: none;
 
     resize: vertical;
 
     background:
-        rgba(253, 249, 255, 0.92);
+        rgba(
+            255,
+            252,
+            255,
+            0.85
+        );
 
-    color: #443052;
+    color:
+        #44364f;
 
-    font-family: "DM Sans", sans-serif;
+    font-family:
+        "DM Sans",
+        sans-serif;
 
-    font-size: 16px;
+    font-size: 15.5px;
 
-    line-height: 1.65;
+    line-height: 1.7;
 
     transition:
         border-color 0.25s ease,
@@ -734,17 +1056,33 @@ textarea {
 }
 
 textarea::placeholder {
-    color: #a891bb;
+
+    color:
+        #ad9dbb;
 }
 
 textarea:focus {
-    border-color: #8b5cf6;
 
-    background: white;
+    border-color:
+        #a979ff;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            0.96
+        );
 
     box-shadow:
+
         0 0 0 5px
-        rgba(139, 92, 246, 0.11);
+        rgba(
+            167,
+            122,
+            255,
+            0.11
+        );
 }
 
 
@@ -753,9 +1091,10 @@ textarea:focus {
    ========================================================= */
 
 button {
+
     width: 100%;
 
-    margin-top: 18px;
+    margin-top: 17px;
 
     padding: 17px 25px;
 
@@ -764,25 +1103,36 @@ button {
     border-radius: 19px;
 
     background:
+
         linear-gradient(
             135deg,
-            #8b5cf6,
-            #a855f7
+            #9870ed,
+            #b179ef
         );
 
     color: white;
 
-    font-family: "DM Sans", sans-serif;
+    font-family:
+        "DM Sans",
+        sans-serif;
 
-    font-size: 17px;
+    font-size: 16px;
 
     font-weight: 700;
+
+    letter-spacing: 0.1px;
 
     cursor: pointer;
 
     box-shadow:
-        0 14px 30px
-        rgba(124, 58, 237, 0.25);
+
+        0 15px 32px
+        rgba(
+            128,
+            81,
+            211,
+            0.23
+        );
 
     transition:
         transform 0.2s ease,
@@ -791,28 +1141,41 @@ button {
 }
 
 button:hover {
-    transform: translateY(-2px);
 
-    filter: brightness(1.05);
+    transform:
+        translateY(-2px);
+
+    filter:
+        brightness(1.04);
 
     box-shadow:
-        0 18px 38px
-        rgba(124, 58, 237, 0.33);
+
+        0 20px 40px
+        rgba(
+            128,
+            81,
+            211,
+            0.30
+        );
 }
 
 button:active {
-    transform: translateY(1px);
+
+    transform:
+        translateY(1px);
 }
 
 button:disabled {
+
     background:
         linear-gradient(
             135deg,
-            #b8a5ca,
-            #b7a7c8
+            #c7b8d4,
+            #cfc2da
         );
 
-    cursor: not-allowed;
+    cursor:
+        not-allowed;
 
     box-shadow: none;
 
@@ -825,66 +1188,89 @@ button:disabled {
    ========================================================= */
 
 .status {
+
     min-height: 25px;
 
-    margin-top: 17px;
+    margin-top: 16px;
 
     text-align: center;
 
-    font-size: 14px;
+    font-size: 13px;
 
     font-weight: 700;
 }
 
 .success {
-    color: #23845d;
+
+    color:
+        #398467;
 }
 
 .error {
-    color: #c24175;
+
+    color:
+        #bd537a;
 }
 
 
 /* =========================================================
-   OUTPUT PANELS
+   OUTPUT
    ========================================================= */
 
 .output-wrapper {
+
     position: relative;
 }
 
 .output-label {
+
     position: absolute;
 
-    top: 13px;
-    right: 14px;
+    top: 12px;
+    right: 13px;
 
-    padding: 5px 11px;
+    z-index: 2;
+
+    padding:
+        5px 10px;
 
     border-radius: 999px;
 
     background:
-        rgba(216, 190, 255, 0.14);
+        rgba(
+            255,
+            255,
+            255,
+            0.09
+        );
 
     border:
         1px solid
-        rgba(216, 190, 255, 0.18);
+        rgba(
+            255,
+            255,
+            255,
+            0.10
+        );
 
-    color: #cdb4f7;
+    color:
+        #cdbce3;
 
-    font-size: 10px;
+    font-size: 9px;
 
     font-weight: 700;
 
-    letter-spacing: 1px;
+    letter-spacing: 1.2px;
 }
 
 pre {
+
     margin: 0;
 
-    min-height: 160px;
+    min-height: 155px;
 
-    padding: 27px 22px;
+    padding:
+        26px 21px;
 
     border-radius: 21px;
 
@@ -895,29 +1281,42 @@ pre {
     word-break: break-word;
 
     background:
+
         linear-gradient(
             145deg,
-            #241735,
-            #1d1630
+            #2c2039,
+            #21182d
         );
 
     border:
         1px solid
-        rgba(255,255,255,0.08);
+        rgba(
+            255,
+            255,
+            255,
+            0.08
+        );
 
-    color: #eadcff;
+    color:
+        #eee4fa;
 
     font-family:
         "Courier New",
         monospace;
 
-    font-size: 14px;
+    font-size: 13px;
 
     line-height: 1.75;
 
     box-shadow:
+
         inset 0 1px 0
-        rgba(255,255,255,0.04);
+        rgba(
+            255,
+            255,
+            255,
+            0.04
+        );
 }
 
 
@@ -926,19 +1325,23 @@ pre {
    ========================================================= */
 
 .footer {
-    margin-top: 38px;
+
+    margin-top: 36px;
 
     text-align: center;
 
-    color: #846b9b;
+    color:
+        #8b779a;
 
-    font-size: 13px;
+    font-size: 12.5px;
 }
 
 .footer-heart {
-    color: #8b5cf6;
 
-    font-size: 17px;
+    color:
+        #9a68e9;
+
+    font-size: 16px;
 }
 
 
@@ -951,7 +1354,7 @@ pre {
     0% {
         transform:
             translateY(0)
-            rotate(-4deg);
+            rotate(-3deg);
     }
 
     50% {
@@ -963,11 +1366,11 @@ pre {
     100% {
         transform:
             translateY(0)
-            rotate(-4deg);
+            rotate(-3deg);
     }
 }
 
-@keyframes floatOne {
+@keyframes gentleFloat {
 
     0% {
         transform:
@@ -977,29 +1380,14 @@ pre {
 
     50% {
         transform:
-            translateY(-18px)
-            rotate(10deg);
+            translateY(-15px)
+            rotate(8deg);
     }
 
     100% {
         transform:
             translateY(0)
             rotate(0deg);
-    }
-}
-
-@keyframes floatTwo {
-
-    0% {
-        transform: translateY(0);
-    }
-
-    50% {
-        transform: translateY(15px);
-    }
-
-    100% {
-        transform: translateY(0);
     }
 }
 
@@ -1011,55 +1399,72 @@ pre {
 @media (max-width: 650px) {
 
     .container {
+
         width: 94%;
 
-        padding-top: 35px;
+        padding-top: 34px;
     }
 
     .logo {
-        width: 75px;
-        height: 75px;
+
+        width: 76px;
+        height: 76px;
 
         font-size: 37px;
+
+        border-radius: 25px;
+    }
+
+    h1 {
+
+        font-size: 48px;
+    }
+
+    .subtitle {
+
+        font-size: 14px;
+
+        line-height: 1.5;
+    }
+
+    .tagline {
+
+        font-size: 11px;
+    }
+
+    .card {
+
+        padding: 20px;
 
         border-radius: 24px;
     }
 
-    h1 {
-        font-size: 42px;
-
-        letter-spacing: -1.5px;
-    }
-
-    .subtitle {
-        font-size: 15px;
-    }
-
-    .tagline {
-        font-size: 12px;
-    }
-
-    .card {
-        padding: 20px;
-
-        border-radius: 23px;
-    }
-
     h2 {
-        font-size: 19px;
+
+        font-size: 24px;
+    }
+
+    .card-icon {
+
+        width: 43px;
+        height: 43px;
     }
 
     textarea {
-        min-height: 150px;
 
-        font-size: 15px;
+        min-height: 155px;
+
+        font-size: 14px;
     }
 
     pre {
-        font-size: 12px;
+
+        font-size: 11.5px;
     }
 
-    .decor {
+    .decor,
+    .blob {
+
         display: none;
     }
 }
@@ -1072,29 +1477,38 @@ pre {
 <body>
 
 
-<!-- ========================================================
-     DECORATIVE ELEMENTS
-     ======================================================== -->
+<!-- ======================================================
+     BACKGROUND
+     ====================================================== -->
 
-<div class="decor one">
+<div class="blob blob-one"></div>
+<div class="blob blob-two"></div>
+<div class="blob blob-three"></div>
+
+
+<div class="decor decor-one">
     ♡ ✦
 </div>
 
-<div class="decor two">
+<div class="decor decor-two">
     ✧ ♡
 </div>
 
-<div class="decor three">
+<div class="decor decor-three">
     ♡ ✧
 </div>
 
 
+<!-- ======================================================
+     MAIN
+     ====================================================== -->
+
 <div class="container">
 
 
-<!-- ========================================================
+<!-- ======================================================
      HERO
-     ======================================================== -->
+     ====================================================== -->
 
 <div class="hero">
 
@@ -1108,19 +1522,19 @@ pre {
     </h1>
 
     <p class="subtitle">
-        Generate • Test • Execute Python Code with AI
+        Generate · Test · Execute Python Code with AI
     </p>
 
     <div class="tagline">
-        ✨ Your little AI coding assistant ✨
+        ✨ Your little lavender coding companion ✨
     </div>
 
 </div>
 
 
-<!-- ========================================================
+<!-- ======================================================
      TASK CARD
-     ======================================================== -->
+     ====================================================== -->
 
 <div class="card">
 
@@ -1139,7 +1553,11 @@ pre {
 
     <textarea
         id="task"
-        placeholder="Tell your AI coding assistant what you want to build... 💜&#10;&#10;Example: Write a Python program that calculates the factorial of 5."
+        placeholder="Tell your AI coding assistant what you want to build... 💜
+
+Example:
+Write a Python program that calculates
+the factorial of 5."
     ></textarea>
 
 
@@ -1159,9 +1577,9 @@ pre {
 </div>
 
 
-<!-- ========================================================
+<!-- ======================================================
      GENERATED CODE
-     ======================================================== -->
+     ====================================================== -->
 
 <div class="card">
 
@@ -1191,9 +1609,9 @@ pre {
 </div>
 
 
-<!-- ========================================================
+<!-- ======================================================
      TEST REPORT
-     ======================================================== -->
+     ====================================================== -->
 
 <div class="card">
 
@@ -1223,9 +1641,9 @@ pre {
 </div>
 
 
-<!-- ========================================================
+<!-- ======================================================
      FOOTER
-     ======================================================== -->
+     ====================================================== -->
 
 <div class="footer">
 
@@ -1239,9 +1657,9 @@ pre {
 </div>
 
 
-<!-- ========================================================
+<!-- ======================================================
      JAVASCRIPT
-     ======================================================== -->
+     ====================================================== -->
 
 <script>
 
@@ -1331,7 +1749,6 @@ async function runAgent() {
             throw new Error(
                 "Server returned an invalid response."
             );
-
         }
 
 
@@ -1341,7 +1758,6 @@ async function runAgent() {
                 data.detail ||
                 "Server error"
             );
-
         }
 
 
@@ -1370,11 +1786,14 @@ async function runAgent() {
         status.className =
             "status error";
 
+
         code.innerText =
             "No code generated.";
 
+
         report.innerText =
             "Something went wrong.";
+
 
     } finally {
 
@@ -1415,17 +1834,23 @@ def health():
 # ============================================================
 
 @app.post("/run")
-def run_agent(request: TaskRequest):
+def run_agent(
+    request: TaskRequest
+):
 
     task = request.task.strip()
 
+
     if not task:
+
         raise HTTPException(
             status_code=400,
             detail="Task cannot be empty.",
         )
 
+
     if not api_key:
+
         raise HTTPException(
             status_code=500,
             detail=(
@@ -1436,7 +1861,9 @@ def run_agent(request: TaskRequest):
             ),
         )
 
+
     if llm is None:
+
         raise HTTPException(
             status_code=500,
             detail=(
@@ -1446,15 +1873,22 @@ def run_agent(request: TaskRequest):
             ),
         )
 
+
     try:
 
         initial_state: CrewState = {
+
             "messages": [
-                HumanMessage(content=task)
+                HumanMessage(
+                    content=task
+                )
             ],
+
             "code": None,
+
             "report": None,
         }
+
 
         result = rt_app.invoke(
             initial_state,
@@ -1463,18 +1897,24 @@ def run_agent(request: TaskRequest):
             },
         )
 
+
         return {
+
             "success": True,
+
             "task": task,
+
             "code": result.get(
                 "code",
                 ""
             ),
+
             "report": result.get(
                 "report",
                 ""
             ),
         }
+
 
     except Exception as exc:
 
@@ -1484,7 +1924,9 @@ def run_agent(request: TaskRequest):
 
         raise HTTPException(
             status_code=500,
-            detail=f"AI Agent Error: {str(exc)}",
+            detail=(
+                f"AI Agent Error: {str(exc)}"
+            ),
         )
 
 
@@ -1509,3 +1951,4 @@ if __name__ == "__main__":
         port=port,
         reload=False,
     )
+````
