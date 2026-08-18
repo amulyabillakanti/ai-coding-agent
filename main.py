@@ -15,7 +15,7 @@ from langgraph.graph import StateGraph,START,END
 app=FastAPI(
     title="AI Coding Agent",
     description="AI powered coding testing debugging and execution platform",
-    version="4.0.0"
+    version="5.0.0"
 )
 
 api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -378,18 +378,18 @@ box-sizing:border-box;
 }
 
 :root{
---bg:#F7F0FF;
---bg2:#FDEBF6;
---primary:#D66BA0;
---primary2:#B76EAA;
---pink:#E59ABC;
---dark:#4A3045;
---muted:#92758B;
+--bg:#FFF0F3;
+--bg2:#FFE1E8;
+--primary:#E85D75;
+--primary2:#F58FA3;
+--light:#FFC7D2;
+--dark:#542B35;
+--muted:#98737D;
 --card:#FFFFFF;
---editor:#241B27;
---editor2:#302331;
---success:#5FA77A;
---error:#D95C75;
+--editor:#281A1E;
+--editor2:#342126;
+--success:#63A375;
+--error:#D94F64;
 }
 
 html{
@@ -403,25 +403,25 @@ font-family:"Segoe UI",Arial,sans-serif;
 color:var(--dark);
 background:
 radial-gradient(
-circle at 10% 5%,
-rgba(214,107,160,.25),
+circle at 8% 8%,
+rgba(232,93,117,.24),
+transparent 29%
+),
+radial-gradient(
+circle at 92% 12%,
+rgba(245,143,163,.30),
 transparent 30%
 ),
 radial-gradient(
-circle at 90% 10%,
-rgba(182,110,170,.25),
-transparent 32%
-),
-radial-gradient(
 circle at 50% 100%,
-rgba(229,154,188,.28),
+rgba(255,199,210,.40),
 transparent 38%
 ),
 linear-gradient(
 135deg,
-#F7F0FF,
-#FDEBF6,
-#F7F0FF
+#FFF0F3,
+#FFE8ED,
+#FFF5F7
 );
 background-attachment:fixed;
 }
@@ -431,18 +431,18 @@ content:"";
 position:fixed;
 inset:0;
 pointer-events:none;
-opacity:.18;
+opacity:.16;
 background-image:
 linear-gradient(
-rgba(182,110,170,.07) 1px,
+rgba(232,93,117,.07) 1px,
 transparent 1px
 ),
 linear-gradient(
 90deg,
-rgba(182,110,170,.07) 1px,
+rgba(232,93,117,.07) 1px,
 transparent 1px
 );
-background-size:50px 50px;
+background-size:48px 48px;
 }
 
 .container{
@@ -458,12 +458,12 @@ display:flex;
 align-items:center;
 justify-content:space-between;
 padding:0 22px;
-background:rgba(255,255,255,.65);
-border:1px solid rgba(182,110,170,.15);
+background:rgba(255,255,255,.68);
+border:1px solid rgba(232,93,117,.13);
 backdrop-filter:blur(25px);
 border-radius:22px;
 box-shadow:
-0 18px 55px rgba(74,48,69,.08);
+0 18px 55px rgba(84,43,53,.08);
 }
 
 .brand{
@@ -471,7 +471,7 @@ display:flex;
 align-items:center;
 gap:12px;
 font-weight:800;
-color:#713F62;
+color:#7D3A49;
 }
 
 .brand-orb{
@@ -485,12 +485,12 @@ color:white;
 background:
 linear-gradient(
 135deg,
-#E59ABC,
-#D66BA0,
-#B76EAA
+#F58FA3,
+#E85D75,
+#D94F64
 );
 box-shadow:
-0 8px 25px rgba(214,107,160,.28);
+0 8px 25px rgba(232,93,117,.30);
 }
 
 .online{
@@ -499,15 +499,16 @@ align-items:center;
 gap:8px;
 font-size:13px;
 font-weight:600;
-color:#8B5B79;
+color:#9B5B69;
 }
 
 .online-dot{
 width:8px;
 height:8px;
 border-radius:50%;
-background:#5FA77A;
-box-shadow:0 0 12px rgba(95,167,122,.7);
+background:#63A375;
+box-shadow:
+0 0 12px rgba(99,163,117,.75);
 }
 
 .hero{
@@ -528,14 +529,14 @@ background:
 radial-gradient(
 circle at 30% 25%,
 #FFFFFF,
-#FDEBF6 20%,
-#E59ABC 42%,
-#D66BA0 63%,
-#B76EAA
+#FFE1E8 20%,
+#FFC7D2 42%,
+#F58FA3 62%,
+#E85D75
 );
 box-shadow:
-0 20px 50px rgba(182,110,170,.25),
-0 0 90px rgba(214,107,160,.25);
+0 20px 50px rgba(232,93,117,.25),
+0 0 90px rgba(245,143,163,.30);
 animation:float 4s ease-in-out infinite;
 }
 
@@ -556,10 +557,10 @@ font-weight:800;
 background:
 linear-gradient(
 90deg,
-#713F62,
-#B76EAA,
-#D66BA0,
-#8B5578
+#7D3A49,
+#E85D75,
+#F58FA3,
+#A94459
 );
 -webkit-background-clip:text;
 -webkit-text-fill-color:transparent;
@@ -579,20 +580,20 @@ gap:22px;
 }
 
 .card{
-background:rgba(255,255,255,.68);
-border:1px solid rgba(182,110,170,.13);
+background:rgba(255,255,255,.70);
+border:1px solid rgba(232,93,117,.13);
 backdrop-filter:blur(22px);
 border-radius:25px;
 padding:26px;
 box-shadow:
-0 20px 60px rgba(74,48,69,.08);
+0 20px 60px rgba(84,43,53,.08);
 transition:.3s;
 }
 
 .card:hover{
 transform:translateY(-3px);
 box-shadow:
-0 25px 70px rgba(74,48,69,.12);
+0 25px 70px rgba(84,43,53,.12);
 }
 
 .title{
@@ -605,7 +606,7 @@ margin-bottom:20px;
 .title h2{
 margin:0;
 font-size:18px;
-color:#713F62;
+color:#7D3A49;
 }
 
 .label{
@@ -613,7 +614,7 @@ font-size:10px;
 letter-spacing:1.5px;
 text-transform:uppercase;
 font-weight:700;
-color:#B76EAA;
+color:#E85D75;
 }
 
 textarea{
@@ -623,23 +624,23 @@ padding:20px;
 resize:none;
 outline:none;
 border-radius:18px;
-border:1px solid rgba(182,110,170,.18);
+border:1px solid rgba(232,93,117,.17);
 background:
-rgba(253,247,255,.85);
+rgba(255,250,251,.90);
 color:var(--dark);
 font:15px/1.7 "Segoe UI",Arial,sans-serif;
 transition:.25s;
 }
 
 textarea::placeholder{
-color:#AA8E9F;
+color:#B4949C;
 }
 
 textarea:focus{
-border-color:#D66BA0;
+border-color:#E85D75;
 box-shadow:
-0 0 0 4px rgba(214,107,160,.09),
-0 10px 30px rgba(182,110,170,.08);
+0 0 0 4px rgba(232,93,117,.09),
+0 10px 30px rgba(84,43,53,.08);
 }
 
 .run{
@@ -655,15 +656,15 @@ cursor:pointer;
 background:
 linear-gradient(
 110deg,
-#B76EAA,
-#D66BA0,
-#E59ABC,
-#C77FB1,
-#B76EAA
+#D94F64,
+#E85D75,
+#F58FA3,
+#E76D84,
+#D94F64
 );
 background-size:250% 100%;
 box-shadow:
-0 12px 30px rgba(182,110,170,.28);
+0 12px 30px rgba(232,93,117,.28);
 transition:.3s;
 }
 
@@ -671,7 +672,7 @@ transition:.3s;
 background-position:100% 0;
 transform:translateY(-2px);
 box-shadow:
-0 17px 40px rgba(182,110,170,.35);
+0 17px 40px rgba(232,93,117,.35);
 }
 
 .run:disabled{
@@ -691,7 +692,7 @@ display:flex;
 align-items:center;
 gap:10px;
 font-size:13px;
-color:#AA8E9F;
+color:#B4949C;
 }
 
 .step-icon{
@@ -700,20 +701,20 @@ height:23px;
 display:grid;
 place-items:center;
 border-radius:50%;
-border:1px solid #E5C1D8;
+border:1px solid #EAC4CC;
 font-size:10px;
 }
 
 .step.active{
-color:#B76EAA;
+color:#D94F64;
 font-weight:700;
 }
 
 .step.active .step-icon{
-border-color:#D66BA0;
-color:#B76EAA;
+border-color:#E85D75;
+color:#D94F64;
 box-shadow:
-0 0 15px rgba(214,107,160,.25);
+0 0 15px rgba(232,93,117,.25);
 }
 
 .step.done{
@@ -729,9 +730,9 @@ color:var(--success);
 overflow:hidden;
 border-radius:18px;
 background:var(--editor);
-border:1px solid rgba(214,107,160,.18);
+border:1px solid rgba(232,93,117,.18);
 box-shadow:
-0 12px 35px rgba(74,48,69,.15);
+0 12px 35px rgba(84,43,53,.16);
 }
 
 .window{
@@ -751,11 +752,11 @@ border-radius:50%;
 }
 
 .red{
-background:#EF6B83;
+background:#F06D7F;
 }
 
 .yellow{
-background:#E8C56B;
+background:#EBC96D;
 }
 
 .green{
@@ -765,7 +766,7 @@ background:#72B98B;
 .filename{
 margin-left:8px;
 font-size:12px;
-color:#E5B6D0;
+color:#F5B8C5;
 }
 
 pre{
@@ -775,7 +776,7 @@ padding:18px;
 overflow:auto;
 white-space:pre-wrap;
 word-break:break-word;
-color:#FBE8F2;
+color:#FFE8ED;
 font:13px/1.7 Consolas,"Courier New",monospace;
 }
 
@@ -789,9 +790,9 @@ margin-top:14px;
 flex:1;
 padding:11px;
 border-radius:12px;
-border:1px solid rgba(182,110,170,.15);
-background:rgba(255,255,255,.58);
-color:#9A5780;
+border:1px solid rgba(232,93,117,.15);
+background:rgba(255,255,255,.60);
+color:#C04E63;
 cursor:pointer;
 font-size:12px;
 font-weight:600;
@@ -799,8 +800,8 @@ transition:.2s;
 }
 
 .small:hover{
-background:#FDEBF6;
-border-color:#D66BA0;
+background:#FFE1E8;
+border-color:#E85D75;
 transform:translateY(-1px);
 }
 
@@ -818,14 +819,14 @@ gap:14px;
 padding:20px;
 border-radius:18px;
 background:
-rgba(253,247,255,.7);
-border:1px solid rgba(182,110,170,.10);
+rgba(255,249,250,.75);
+border:1px solid rgba(232,93,117,.10);
 }
 
 .number{
 font-size:31px;
 font-weight:800;
-color:#B76EAA;
+color:#E85D75;
 }
 
 .stat-label{
@@ -833,7 +834,7 @@ margin-top:4px;
 font-size:10px;
 letter-spacing:1px;
 text-transform:uppercase;
-color:#AA8E9F;
+color:#B4949C;
 }
 
 .pass .number{
@@ -854,9 +855,9 @@ margin-top:16px;
 .test{
 padding:14px;
 border-radius:14px;
-background:rgba(255,255,255,.55);
-border:1px solid rgba(182,110,170,.08);
-color:#806375;
+background:rgba(255,255,255,.58);
+border:1px solid rgba(232,93,117,.08);
+color:#80606A;
 font-size:13px;
 }
 
@@ -875,7 +876,7 @@ margin-top:22px;
 height:210px;
 border-radius:16px;
 background:var(--editor);
-color:#FBE8F2;
+color:#FFE8ED;
 }
 
 .status{
@@ -897,7 +898,7 @@ color:var(--error);
 .footer{
 margin-top:35px;
 text-align:center;
-color:#AA8E9F;
+color:#B4949C;
 font-size:12px;
 }
 
@@ -1241,9 +1242,11 @@ let i=1;
 i<=4;
 i++
 ){
+
 document.getElementById(
 "step"+i
 ).className="step";
+
 }
 
 if(number>0){
@@ -1253,9 +1256,11 @@ let i=1;
 i<number;
 i++
 ){
+
 document.getElementById(
 "step"+i
 ).className="step done";
+
 }
 
 document.getElementById(
